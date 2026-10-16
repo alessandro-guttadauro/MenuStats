@@ -40,6 +40,12 @@ enum SMCSensorMap {
             cpuCores: ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp0V", "Tp0b", "Tp0h", "Tp0n", "Tp0v", "Tp0z", "Tp17"],
             gpu: ["Tg01", "Tg05", "Tg0D", "Tg0L", "Tg0V", "Tg0v", "Tg13", "Tg1B", "Tg1l"]
         ),
+        // Read on a MacBook Pro (Mac16,8). Keys come in groups of three sensors per core; the middle one of each
+        // group is used, like the M3 Pro list. GPU: the sensors that track the GPU cluster (the others stay near idle).
+        "Apple M4 Pro": Keys(
+            cpuCores: ["Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b", "Tp0e", "Tp0i", "Tp0m", "Tp0q", "Tp0v"],
+            gpu: ["Tg05", "Tg0S", "Tg0Y", "Tg0k", "Tg0z", "Tg1V", "Tg1l"]
+        ),
     ]
 
     static var current: Keys? { Sysctl.string("machdep.cpu.brand_string").flatMap { byChip[$0] } }
