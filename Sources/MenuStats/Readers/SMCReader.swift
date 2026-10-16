@@ -40,10 +40,11 @@ enum SMCSensorMap {
             cpuCores: ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp0V", "Tp0b", "Tp0h", "Tp0n", "Tp0v", "Tp0z", "Tp17"],
             gpu: ["Tg01", "Tg05", "Tg0D", "Tg0L", "Tg0V", "Tg0v", "Tg13", "Tg1B", "Tg1l"]
         ),
-        // Read on a MacBook Pro (Mac16,8). Keys come in groups of three sensors per core; the middle one of each
-        // group is used, like the M3 Pro list. GPU: the sensors that track the GPU cluster (the others stay near idle).
+        // MacBook Pro (Mac16,8). The per-core `Tp` keys sit at a 40 °C floor while a core idles, so the CPU figure uses
+        // the `TfC*` die sensors instead: within ~2 °C of iStat Menus on this Mac (idle 35 vs 36, load 44 vs 42).
+        // GPU: the `Tg` sensors that track the GPU cluster (not yet compared with iStat Menus).
         "Apple M4 Pro": Keys(
-            cpuCores: ["Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b", "Tp0e", "Tp0i", "Tp0m", "Tp0q", "Tp0v"],
+            cpuCores: ["TfC0", "TfC1", "TfC2", "TfC3", "TfC4"],
             gpu: ["Tg05", "Tg0S", "Tg0Y", "Tg0k", "Tg0z", "Tg1V", "Tg1l"]
         ),
     ]
@@ -55,7 +56,8 @@ enum SMCSensorMap {
 final class SMCReader {
     private let connection = MSSMCOpen()
     private lazy var fanCount: Int = read("FNum").map { Int($0) } ?? 0
-    private let sensorKeys = SMCSensorMap.current
+    /// The chip's table entry, or for chips not listed yet (e.g. M5) the `Tf??` die sensors found on this Mac.
+    private lazy var sensorKeys = SMCSensorMap.current ?? discoverDieSensors()
 
     deinit { MSSMCClose(connection) }
 
@@ -70,6 +72,20 @@ final class SMCReader {
         return SMCStats(fans: fans, systemPower: read("PSTR"), adapterPower: read("PDTR"),
                         cpuCoreTemperatures: temperatures(sensorKeys?.cpuCores ?? []),
                         gpuTemperatures: temperatures(sensorKeys?.gpu ?? []))
+    }
+
+    /// CPU temperature for chips missing from `SMCSensorMap`: every `Tf??` key that reads a float in a believable
+    /// range. Nil (so the HID fallback applies) when the Mac has none. GPU stays on the HID fallback.
+    private func discoverDieSensors() -> SMCSensorMap.Keys? {
+        guard connection != 0 else { return nil }
+        let characters = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+        let keys = characters.flatMap { first in characters.map { "Tf\(first)\($0)" } }.filter { key in
+            var value = MSSMCValue()
+            guard MSSMCRead(connection, key, &value) == 0, fourCC(value.dataType) == "flt ",
+                  let degrees = read(key) else { return false }
+            return degrees > 20 && degrees < 120
+        }
+        return keys.isEmpty ? nil : SMCSensorMap.Keys(cpuCores: keys, gpu: [])
     }
 
     /// Reads a key and decodes the common numeric SMC types.
