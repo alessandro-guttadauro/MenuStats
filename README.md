@@ -7,7 +7,7 @@ indipendente: non contiene codice o asset di Bjango e non è affiliato a Bjango.
 
 ## Installazione
 
-1. Scarica `MenuStats-1.0.0.zip` dall'ultima [release](https://github.com/thomas-addamo/MenuStats/releases/latest)
+1. Scarica lo zip `MenuStats-<versione>.zip` dall'ultima [release](https://github.com/thomas-addamo/MenuStats/releases/latest)
    e sposta `MenuStats.app` in `~/Applications` o `/Applications`.
 2. L'app ha una firma ad hoc e non è notarizzata: al primo avvio fai clic destro ▸ **Apri**, oppure
    `xattr -dr com.apple.quarantine /Applications/MenuStats.app`.
