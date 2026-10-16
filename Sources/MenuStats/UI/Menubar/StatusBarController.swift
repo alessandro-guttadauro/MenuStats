@@ -1,0 +1,168 @@
+import AppKit
+import Combine
+
+/// Owns the status items: one combined item (compact) or one per module, re-rendered on every
+/// sample and on settings changes. A left click opens the dashboard on the clicked module's tab.
+final class StatusBarController: NSObject {
+    private let model: AppModel
+    private let settings: Settings
+    private let panel: DashboardPanelController
+    private let openSettings: () -> Void
+
+    private struct Entry {
+        var item: NSStatusItem
+        var modules: [ModuleID]
+        var hitRanges: [(ModuleID, ClosedRange<CGFloat>)] = []
+        var imageWidth: CGFloat = 0
+    }
+
+    private var entries: [Entry] = []
+    private var cancellables: Set<AnyCancellable> = []
+    private var fanAngle: CGFloat = 0
+    private var animationTimer: Timer?
+
+    init(model: AppModel, panel: DashboardPanelController, openSettings: @escaping () -> Void) {
+        self.model = model
+        self.settings = model.settings
+        self.panel = panel
+        self.openSettings = openSettings
+        super.init()
+
+        model.$snapshot.receive(on: RunLoop.main).sink { [weak self] _ in
+            self?.render()
+            self?.updateAnimation()
+        }.store(in: &cancellables)
+
+        // objectWillChange fires before the new value is stored; rebuild on the next run loop pass.
+        settings.objectWillChange.debounce(for: .milliseconds(30), scheduler: RunLoop.main).sink { [weak self] _ in
+            self?.rebuild()
+        }.store(in: &cancellables)
+
+        rebuild()
+    }
+
+    private var structure: [[ModuleID]] {
+        let modules = settings.visibleModules
+        return settings.layout == .combined ? [modules] : modules.map { [$0] }
+    }
+
+    private func rebuild() {
+        let wanted = structure
+        if wanted != entries.map(\.modules) {
+            entries.forEach { NSStatusBar.system.removeStatusItem($0.item) }
+            // New status items appear to the left of older ones, so create them right-to-left.
+            entries = wanted.reversed().map { modules in
+                let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+                item.autosaveName = "MenuStats." + (wanted.count == 1 ? "combined" : modules[0].rawValue)
+                item.button?.target = self
+                item.button?.action = #selector(clicked(_:))
+                item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+                item.button?.imagePosition = .imageOnly
+                return Entry(item: item, modules: modules)
+            }.reversed()
+        }
+        render()
+        updateAnimation()
+    }
+
+    private func render() {
+        let context = MenubarRenderer.Context(
+            snapshot: model.snapshot,
+            options: MenubarOptions(settings),
+            recent: { [weak model] metric, count in model?.recentValues(metric, count: count) ?? [] },
+            fanAngle: fanAngle
+        )
+        for index in entries.indices {
+            let rendered = MenubarRenderer.image(for: entries[index].modules, context: context)
+            entries[index].item.button?.image = rendered.image
+            // Exact width instead of variableLength (which pads both sides). Only when it changes:
+            // every length change makes macOS re-layout the whole menu bar.
+            let length = ceil(rendered.image.size.width) + 2
+            if abs(entries[index].item.length - length) > 0.5 { entries[index].item.length = length }
+            entries[index].hitRanges = rendered.hitRanges
+            entries[index].imageWidth = rendered.image.size.width
+        }
+    }
+
+    // MARK: - Fan animation
+
+    private var shouldAnimateFan: Bool {
+        settings.dynamicIcons && settings.isEnabled(.fans) && model.snapshot.fansSpinning
+    }
+
+    private func updateAnimation() {
+        if shouldAnimateFan, animationTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in self?.advanceFan() }
+            RunLoop.main.add(timer, forMode: .common)
+            animationTimer = timer
+        } else if !shouldAnimateFan, animationTimer != nil {
+            animationTimer?.invalidate()
+            animationTimer = nil
+            fanAngle = 0
+            render()
+        }
+    }
+
+    private func advanceFan() {
+        let fraction = model.snapshot.smc?.fans.map(\.fraction).max() ?? 0
+        // 0.4–2 revolutions per second depending on fan speed.
+        fanAngle -= CGFloat(2 * Double.pi * (0.4 + 1.6 * fraction) / 12)
+        render()
+    }
+
+    // MARK: - Clicks
+
+    @objc private func clicked(_ sender: NSStatusBarButton) {
+        guard let entry = entries.first(where: { $0.item.button === sender }), let event = NSApp.currentEvent else { return }
+
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            showQuickMenu(for: entry.item)
+            return
+        }
+
+        // The image is centered in the button; map the click to a segment.
+        let location = sender.convert(event.locationInWindow, from: nil)
+        let offset = (sender.bounds.width - entry.imageWidth) / 2
+        let x = location.x - offset
+        let range = entry.hitRanges.first { $0.1.contains(x) } ?? entry.hitRanges.min {
+            abs(($0.1.lowerBound + $0.1.upperBound) / 2 - x) < abs(($1.1.lowerBound + $1.1.upperBound) / 2 - x)
+        }
+        guard let (module, segment) = range, let window = sender.window else { return }
+
+        let midX = offset + (segment.lowerBound + segment.upperBound) / 2
+        let pointInWindow = sender.convert(NSPoint(x: midX, y: sender.bounds.minY), to: nil)
+        let anchor = window.convertPoint(toScreen: pointInWindow)
+        panel.toggle(tab: module.tab, anchor: NSPoint(x: anchor.x, y: window.frame.minY))
+    }
+
+    /// Screen anchor under a module's segment (bottom-center), as a click there would compute.
+    func anchor(for module: ModuleID) -> NSPoint? {
+        guard let entry = entries.first(where: { $0.modules.contains(module) }), let button = entry.item.button,
+              let window = button.window, let range = entry.hitRanges.first(where: { $0.0 == module })?.1 else { return nil }
+        let offset = (button.bounds.width - entry.imageWidth) / 2
+        let point = window.convertPoint(toScreen: button.convert(NSPoint(x: offset + (range.lowerBound + range.upperBound) / 2, y: 0), to: nil))
+        return NSPoint(x: point.x, y: window.frame.minY)
+    }
+
+    /// The status item buttons, for self-test captures.
+    var buttons: [NSStatusBarButton] { entries.compactMap { $0.item.button } }
+
+    private func showQuickMenu(for item: NSStatusItem) {
+        panel.close()
+        let menu = NSMenu()
+        let settingsItem = NSMenuItem(title: "Impostazioni…", action: #selector(openSettingsAction), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        let activity = NSMenuItem(title: "Apri Monitoraggio Attività", action: #selector(openActivityMonitor), keyEquivalent: "")
+        activity.target = self
+        menu.addItem(activity)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Esci da MenuStats", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        item.menu = menu
+        item.button?.performClick(nil)
+        item.menu = nil // restore left-click handling
+    }
+
+    @objc private func openSettingsAction() { openSettings() }
+    @objc private func openActivityMonitor() { SystemActions.openActivityMonitor() }
+}
