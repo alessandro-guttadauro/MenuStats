@@ -3,10 +3,8 @@ import IOKit
 
 struct DiskStats {
     var total: UInt64
-    /// Truly free space on the startup volume.
+    /// Truly free space on the startup volume (what `df` and diskutil report).
     var free: UInt64
-    /// Free plus space macOS can purge on demand.
-    var available: UInt64
     var readRate: Double
     var writeRate: Double
 
@@ -17,8 +15,9 @@ struct DiskStats {
 /// Startup volume space plus read/write throughput summed over every IOBlockStorageDriver.
 final class DiskReader {
     private var previous: (read: UInt64, write: UInt64, time: Double)?
-    // Volume capacity is a slow file system call and changes slowly: refresh it every 10 s.
-    private var space: (total: UInt64, free: UInt64, available: UInt64, time: Double)?
+    // Capacity changes slowly: refresh it every 10 s. statfs is a plain system call; the purgeable-space
+    // estimate (CacheDelete, much slower) is only computed by the disk tab's VolumeReader.
+    private var space: (total: UInt64, free: UInt64, time: Double)?
 
     func sample() -> DiskStats? {
         let (read, write) = readIOCounters()
@@ -32,17 +31,15 @@ final class DiskReader {
         }
 
         if space == nil || now - space!.time > 10 {
-            let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [
-                .volumeTotalCapacityKey, .volumeAvailableCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
-            ])
-            let free = UInt64(values?.volumeAvailableCapacity ?? 0)
-            space = (UInt64(values?.volumeTotalCapacity ?? 0), free,
-                     max(UInt64(max(values?.volumeAvailableCapacityForImportantUsage ?? 0, 0)), free), now)
+            var info = statfs()
+            if statfs("/", &info) == 0 {
+                let block = UInt64(info.f_bsize)
+                space = (UInt64(info.f_blocks) * block, UInt64(info.f_bavail) * block, now)
+            }
         }
         return DiskStats(
-            total: space!.total,
-            free: space!.free,
-            available: space!.available,
+            total: space?.total ?? 0,
+            free: space?.free ?? 0,
             readRate: readRate,
             writeRate: writeRate
         )

@@ -279,6 +279,22 @@ struct ModuleSettings: View {
                 }
             }
             SettingsSection(title: "Stile") { stylePicker }
+            let sections = PanelSection.allCases.filter { $0.module == module }
+            if !sections.isEmpty {
+                SettingsSection(title: "Sezioni nella tendina",
+                                footnote: "Le sezioni nascoste non vengono nemmeno misurate: MenuStats lavora meno. Puoi nasconderle anche dalla tendina con clic destro.") {
+                    ForEach(sections) { section in
+                        Toggle(isOn: Binding(get: { settings.shows(section) }, set: { settings.setShown(section, $0) })) {
+                            HStack(spacing: 6) {
+                                Text(section.title)
+                                if let saving = section.saving {
+                                    Text("nascosta: \(saving)").font(.system(size: 11)).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             extra
         }
     }

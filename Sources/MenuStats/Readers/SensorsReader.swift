@@ -40,12 +40,16 @@ final class SensorsReader {
         }
     }
 
-    func sample() -> SensorStats {
+    /// `full` reads every service (~1 ms each, ~45 on Apple Silicon): only while the sensors tab is open.
+    /// Otherwise just the few the menu bar, alerts and history use (SSD, battery, and the die sensors when the
+    /// chip has no SMC per-core map), which is ~20x cheaper.
+    func sample(full: Bool = true, includeDie: Bool = true) -> SensorStats {
         if services.isEmpty { refreshServices() }
 
         // Several services share a name (one per PMU, several battery gauges): average them per name.
         var valuesByName: [String: [Double]] = [:]
         for (service, name) in zip(services, names) {
+            if !full, !Self.isEssential(name, includeDie: includeDie) { continue }
             guard let event = MSHIDServiceCopyEvent(service, Int64(MSHIDEventTypeTemperature), 0, 0) else { continue }
             let value = MSHIDEventGetFloatValue(event, Int32(MSHIDEventFieldTemperatureLevel))
             // Disconnected or idle sensors report 0 or nonsense values; "tcal" is a calibration constant, not a temperature.
@@ -57,6 +61,10 @@ final class SensorsReader {
             .map { SensorReading(name: $0.key, celsius: $0.value.reduce(0, +) / Double($0.value.count)) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         return SensorStats(readings: readings)
+    }
+
+    private static func isEssential(_ name: String, includeDie: Bool) -> Bool {
+        name.contains("NAND") || name.contains("battery") || (includeDie && name.contains("tdie"))
     }
 
     private func refreshServices() {

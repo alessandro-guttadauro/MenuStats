@@ -52,6 +52,10 @@ io_connect_t MSSMCOpen(void);
 void MSSMCClose(io_connect_t connection);
 /// Reads a four-character key. Returns 0 on success.
 int MSSMCRead(io_connect_t connection, const char *key, MSSMCValue *value);
+/// Key metadata only (one kernel call). Returns 0 on success.
+int MSSMCKeyInfo(io_connect_t connection, const char *key, uint32_t *dataSize, uint32_t *dataType);
+/// Read with metadata from MSSMCKeyInfo: one kernel call instead of two. Returns 0 on success.
+int MSSMCReadKnown(io_connect_t connection, const char *key, uint32_t dataSize, uint32_t dataType, MSSMCValue *value);
 /// Writes a four-character key (needs root). `size` must match the key's size. Returns 0 on success.
 int MSSMCWrite(io_connect_t connection, const char *key, const uint8_t *bytes, uint32_t size);
 CF_ASSUME_NONNULL_END

@@ -82,6 +82,28 @@ final class OfficialBatteryInfo {
 
 /// Battery state from IOPowerSources, plus health details from the AppleSmartBattery registry entry.
 final class BatteryReader {
+    private var cachedDetails: BatteryStats?
+    private var detailsTime = -Double.infinity
+
+    /// Drops the 30 s cache, e.g. when the power source changes or the battery tab opens.
+    func invalidateDetails() { cachedDetails = nil }
+
+    private lazy var smartBattery: io_service_t = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+
+    /// Voltage and current change every second: read just those two properties (cheap) on every sample.
+    private func readLivePower(into stats: inout BatteryStats) {
+        guard smartBattery != 0 else { return }
+        func number(_ key: String) -> NSNumber? {
+            IORegistryEntryCreateCFProperty(smartBattery, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? NSNumber
+        }
+        guard let millivolts = number("Voltage")?.doubleValue, let amperage = number("Amperage") else { return }
+        // Amperage is a signed mA value that IOKit sometimes reports as an unsigned 64-bit integer.
+        let milliamps = Double(Int64(bitPattern: amperage.uint64Value))
+        stats.watts = millivolts * milliamps / 1_000_000
+        stats.voltage = millivolts / 1000
+        stats.amperage = milliamps / 1000
+    }
+
     func sample() -> BatteryStats? {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
@@ -104,7 +126,30 @@ final class BatteryReader {
                 minutesRemaining: (minutes ?? -1) >= 0 ? minutes : nil
             )
             stats.isFullyCharged = description[kIOPSIsChargedKey] as? Bool ?? false
-            addSmartBatteryDetails(to: &stats)
+            // The registry entry (with its large BatteryData dictionary) and the adapter change slowly:
+            // copy them every 30 s and reuse the cached values in between.
+            let now = uptimeSeconds()
+            if now - detailsTime >= 30 || cachedDetails == nil {
+                var details = stats
+                addSmartBatteryDetails(to: &details)
+                if let adapter = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any] {
+                    details.adapterWatts = adapter[kIOPSPowerAdapterWattsKey] as? Int
+                    details.adapterName = adapter["Name"] as? String
+                }
+                cachedDetails = details
+                detailsTime = now
+            }
+            if let cached = cachedDetails {
+                stats.cycleCount = cached.cycleCount
+                stats.health = cached.health
+                stats.temperature = cached.temperature
+                stats.designCapacity = cached.designCapacity
+                stats.fullChargeCapacity = cached.fullChargeCapacity
+                stats.remainingCapacity = cached.remainingCapacity
+                stats.adapterWatts = stats.onACPower ? cached.adapterWatts : nil
+                stats.adapterName = stats.onACPower ? cached.adapterName : nil
+            }
+            readLivePower(into: &stats)
             let official = OfficialBatteryInfo.shared
             official.refreshIfNeeded()
             if let maximum = official.maximumCapacity {
@@ -113,10 +158,6 @@ final class BatteryReader {
             }
             stats.cycleCount = official.cycleCount ?? stats.cycleCount
             stats.condition = official.condition
-            if let adapter = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any] {
-                stats.adapterWatts = adapter[kIOPSPowerAdapterWattsKey] as? Int
-                stats.adapterName = adapter["Name"] as? String
-            }
             return stats
         }
         return nil

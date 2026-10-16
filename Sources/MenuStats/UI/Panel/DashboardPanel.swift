@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Borderless floating panel that can take key focus (for pickers and toggles) without activating the app's windows.
@@ -13,6 +14,7 @@ final class DashboardPanelController {
     private let hosting: NSHostingView<DashboardView>
     private var monitors: [Any] = []
     private var anchor = NSPoint.zero
+    private var cancellables: Set<AnyCancellable> = []
 
     var isVisible: Bool { panel.isVisible }
     var window: NSWindow { panel }
@@ -55,6 +57,14 @@ final class DashboardPanelController {
         ])
         panel.contentView = background
         state.visible = false
+
+        // Tell the model what's on screen, so it samples processes, volumes, GPU and all sensors only when shown.
+        Publishers.CombineLatest(state.$tab, state.$visible)
+            .map { tab, visible in visible ? tab : nil }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak model] tab in model?.setVisibleTab(tab) }
+            .store(in: &cancellables)
     }
 
     /// `anchor` is the bottom-center of the clicked segment, in screen coordinates.

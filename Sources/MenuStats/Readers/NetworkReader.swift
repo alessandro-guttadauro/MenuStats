@@ -22,10 +22,18 @@ final class NetworkReader {
     private let store = SCDynamicStoreCreate(nil, "MenuStats" as CFString, nil, nil)
     private var previous: (interface: String, counters: Counters, time: Double)?
 
+    // The primary interface and its address change rarely: look them up every 10 s.
+    private var cachedInterface: (name: String?, index: UInt32, ip: String?, time: Double)?
+
     func sample() -> NetworkStats? {
-        let all = readCounters()
-        let interface = primaryInterface()
         let now = uptimeSeconds()
+        if cachedInterface == nil || now - cachedInterface!.time >= 10 {
+            let name = primaryInterface()
+            cachedInterface = (name, name.map { if_nametoindex($0) } ?? 0, name.flatMap(ipv4Address(of:)), now)
+        }
+        let interface = cachedInterface?.name
+        // With a primary interface, ask the kernel for that interface only (a few hundred bytes instead of all of them).
+        let all = readCounters(index: cachedInterface?.index ?? 0)
 
         // Without a primary interface (offline), fall back to the sum of all Ethernet/Wi-Fi ports.
         let key = interface ?? "en*"
@@ -51,7 +59,7 @@ final class NetworkReader {
 
         return NetworkStats(
             interface: interface,
-            ipAddress: interface.flatMap(ipv4Address(of:)),
+            ipAddress: cachedInterface?.ip,
             downloadRate: down,
             uploadRate: up,
             totalDownloaded: current.received,
@@ -66,8 +74,9 @@ final class NetworkReader {
         return global["PrimaryInterface"] as? String
     }
 
-    private func readCounters() -> [String: Counters] {
-        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
+    /// `index` 0 lists every interface; otherwise only that one.
+    private func readCounters(index: UInt32 = 0) -> [String: Counters] {
+        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, Int32(index)]
         var length = 0
         guard sysctl(&mib, u_int(mib.count), nil, &length, nil, 0) == 0, length > 0 else { return [:] }
         var buffer = [UInt8](repeating: 0, count: length)

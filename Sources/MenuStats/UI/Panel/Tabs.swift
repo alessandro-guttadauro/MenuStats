@@ -4,10 +4,10 @@ import SwiftUI
 
 struct CPUTab: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         let snapshot = model.snapshot
-        let settings = model.settings
         VStack(spacing: 8) {
             if let cpu = snapshot.cpu {
                 Card {
@@ -21,16 +21,23 @@ struct CPUTab: View {
                         ], columns: 1)
                         .frame(width: 120)
                     }
-                    MetricChart(model: model, title: "Utilizzo", lines: [
-                        ChartLine(metric: .cpuUser, name: "Utente", color: 0),
-                        ChartLine(metric: .cpuSystem, name: "Sistema", color: 1),
-                    ], scale: .percent, stacked: true)
+                    if settings.shows(.cpuChart) {
+                        MetricChart(model: model, title: "Utilizzo", lines: [
+                            ChartLine(metric: .cpuUser, name: "Utente", color: 0),
+                            ChartLine(metric: .cpuSystem, name: "Sistema", color: 1),
+                        ], scale: .percent, stacked: true)
+                        .hideable(.cpuChart)
+                    }
                 }
 
-                Card(title: "Core", trailing: cpu.efficiencyCores > 0 ? "\(cpu.performanceCores)P + \(cpu.efficiencyCores)E" : nil) {
-                    CoreBars(cpu: cpu)
+                if settings.shows(.cpuCores) {
+                    Card(title: "Core", trailing: cpu.efficiencyCores > 0 ? "\(cpu.performanceCores)P + \(cpu.efficiencyCores)E" : nil) {
+                        CoreBars(cpu: cpu)
+                    }
+                    .hideable(.cpuCores)
                 }
 
+                if settings.shows(.cpuLoad) {
                 Card(title: "Carico") {
                     StatGrid(items: [
                         ("1 min", String(format: "%.2f", cpu.loadAverage[0])),
@@ -39,11 +46,16 @@ struct CPUTab: View {
                         ("Attivo da", Format.uptime()),
                     ])
                 }
+                .hideable(.cpuLoad)
+                }
             }
 
-            Card(title: "Processi", trailing: settings.groupProcessesByApp ? "per app" : nil) {
-                ProcessList(rows: ProcessGrouping.groups(snapshot.processes, byApp: settings.groupProcessesByApp),
-                            count: settings.processCount, value: \.cpu, label: { Format.processCPU($0.cpu) })
+            if settings.shows(.cpuProcesses) {
+                Card(title: "Processi", trailing: settings.groupProcessesByApp ? "per app" : nil) {
+                    ProcessList(rows: ProcessGrouping.groups(snapshot.processes, byApp: settings.groupProcessesByApp),
+                                count: settings.processCount, value: \.cpu, label: { Format.processCPU($0.cpu) })
+                }
+                .hideable(.cpuProcesses)
             }
         }
     }
@@ -97,10 +109,10 @@ struct CoreBars: View {
 
 struct MemoryTab: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         let snapshot = model.snapshot
-        let settings = model.settings
         VStack(spacing: 8) {
             if let memory = snapshot.memory {
                 Card {
@@ -111,6 +123,7 @@ struct MemoryTab: View {
                         StatusBadge(label: "Pressione " + (memory.pressureLevel >= 4 ? "critica" : memory.pressureLevel >= 2 ? "alta" : "normale"),
                                     level: memory.pressureLevel >= 4 ? .critical : memory.pressureLevel >= 2 ? .warning : .good)
                     }
+                    if settings.shows(.memoryComposition) {
                     StackedBar(segments: [
                         .init(name: "App", value: Double(memory.app), color: Palette.color(0), label: Format.bytes(memory.app)),
                         .init(name: "Wired", value: Double(memory.wired), color: Palette.color(1), label: Format.bytes(memory.wired)),
@@ -118,15 +131,23 @@ struct MemoryTab: View {
                         .init(name: "Cache", value: Double(memory.cached), color: Palette.color(3), label: Format.bytes(memory.cached)),
                         .init(name: "Libera", value: Double(memory.free), color: Palette.neutral, label: Format.bytes(memory.free)),
                     ])
+                    .hideable(.memoryComposition)
+                    }
                 }
-                Card {
-                    MetricChart(model: model, title: "Memoria usata", lines: [ChartLine(metric: .memory, name: "Memoria", color: 0)], scale: .percent)
-                    MetricChart(model: model, title: "Swap", lines: [ChartLine(metric: .swap, name: "Swap", color: 1)], scale: .bytes, height: 50)
+                if settings.shows(.memoryCharts) {
+                    Card {
+                        MetricChart(model: model, title: "Memoria usata", lines: [ChartLine(metric: .memory, name: "Memoria", color: 0)], scale: .percent)
+                        MetricChart(model: model, title: "Swap", lines: [ChartLine(metric: .swap, name: "Swap", color: 1)], scale: .bytes, height: 50)
+                    }
+                    .hideable(.memoryCharts)
                 }
             }
-            Card(title: "Processi", trailing: settings.groupProcessesByApp ? "per app" : nil) {
-                ProcessList(rows: ProcessGrouping.groups(snapshot.processes, byApp: settings.groupProcessesByApp),
-                            count: settings.processCount, value: { Double($0.memory) }, label: { Format.bytes($0.memory) })
+            if settings.shows(.memoryProcesses) {
+                Card(title: "Processi", trailing: settings.groupProcessesByApp ? "per app" : nil) {
+                    ProcessList(rows: ProcessGrouping.groups(snapshot.processes, byApp: settings.groupProcessesByApp),
+                                count: settings.processCount, value: { Double($0.memory) }, label: { Format.bytes($0.memory) })
+                }
+                .hideable(.memoryProcesses)
             }
         }
     }
@@ -136,28 +157,37 @@ struct MemoryTab: View {
 
 struct DiskTab: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         let snapshot = model.snapshot
-        let settings = model.settings
         VStack(spacing: 8) {
-            Card(title: "Volumi") {
-                VStack(spacing: 12) {
-                    ForEach(snapshot.volumes) { volume in
-                        VolumeRow(volume: volume)
+            if settings.shows(.diskVolumes) {
+                Card(title: "Volumi") {
+                    VStack(spacing: 12) {
+                        ForEach(snapshot.volumes) { volume in
+                            VolumeRow(volume: volume)
+                        }
                     }
                 }
+                .hideable(.diskVolumes)
             }
-            Card {
-                MetricChart(model: model, title: "Attività", lines: [
-                    ChartLine(metric: .diskRead, name: "Lettura", color: 0),
-                    ChartLine(metric: .diskWrite, name: "Scrittura", color: 1),
-                ], scale: .rate)
+            if settings.shows(.diskChart) {
+                Card {
+                    MetricChart(model: model, title: "Attività", lines: [
+                        ChartLine(metric: .diskRead, name: "Lettura", color: 0),
+                        ChartLine(metric: .diskWrite, name: "Scrittura", color: 1),
+                    ], scale: .rate)
+                }
+                .hideable(.diskChart)
             }
-            Card(title: "Processi", trailing: "lettura + scrittura") {
-                ProcessList(rows: ProcessGrouping.groups(snapshot.processes, byApp: settings.groupProcessesByApp),
-                            count: settings.processCount, value: { $0.diskRead + $0.diskWrite },
-                            label: { "R \(Format.rate($0.diskRead, compact: true))  W \(Format.rate($0.diskWrite, compact: true))" })
+            if settings.shows(.diskProcesses) {
+                Card(title: "Processi", trailing: "lettura + scrittura") {
+                    ProcessList(rows: ProcessGrouping.groups(snapshot.processes, byApp: settings.groupProcessesByApp),
+                                count: settings.processCount, value: { $0.diskRead + $0.diskWrite },
+                                label: { "R \(Format.rate($0.diskRead, compact: true))  W \(Format.rate($0.diskWrite, compact: true))" })
+                }
+                .hideable(.diskProcesses)
             }
         }
     }
@@ -196,10 +226,10 @@ struct VolumeRow: View {
 
 struct NetworkTab: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         let snapshot = model.snapshot
-        let settings = model.settings
         VStack(spacing: 8) {
             if let network = snapshot.network {
                 Card {
@@ -209,11 +239,15 @@ struct NetworkTab: View {
                         Hero(value: Format.rate(network.uploadRate), caption: "Upload", accent: Palette.color(1))
                         Spacer()
                     }
-                    MetricChart(model: model, title: "Traffico", lines: [
-                        ChartLine(metric: .netDown, name: "Download", color: 0),
-                        ChartLine(metric: .netUp, name: "Upload", color: 1),
-                    ], scale: .rate)
+                    if settings.shows(.networkChart) {
+                        MetricChart(model: model, title: "Traffico", lines: [
+                            ChartLine(metric: .netDown, name: "Download", color: 0),
+                            ChartLine(metric: .netUp, name: "Upload", color: 1),
+                        ], scale: .rate)
+                        .hideable(.networkChart)
+                    }
                 }
+                if settings.shows(.networkConnection) {
                 Card(title: "Connessione") {
                     StatGrid(items: [
                         ("Interfaccia", network.interface ?? "Non connesso"),
@@ -222,17 +256,24 @@ struct NetworkTab: View {
                         ("Inviati", Format.storage(network.totalUploaded)),
                     ], columns: 1)
                 }
+                .hideable(.networkConnection)
+                }
             }
-            Card(title: "App", trailing: "download + upload") {
-                ProcessList(rows: ProcessGrouping.networkGroups(model.networkProcesses, processes: snapshot.processes,
-                                                                byApp: settings.groupProcessesByApp),
-                            count: settings.processCount, value: { $0.networkDown + $0.networkUp },
-                            label: { "↓\(Format.rate($0.networkDown, compact: true))  ↑\(Format.rate($0.networkUp, compact: true))" },
-                            emptyText: "Misurazione in corso…")
+            if settings.shows(.networkApps) {
+                Card(title: "App", trailing: "download + upload") {
+                    ProcessList(rows: ProcessGrouping.networkGroups(model.networkProcesses, processes: snapshot.processes,
+                                                                    byApp: settings.groupProcessesByApp),
+                                count: settings.processCount, value: { $0.networkDown + $0.networkUp },
+                                label: { "↓\(Format.rate($0.networkDown, compact: true))  ↑\(Format.rate($0.networkUp, compact: true))" },
+                                emptyText: "Misurazione in corso…")
+                }
+                .hideable(.networkApps)
             }
         }
-        .onAppear { model.setNetworkProcessSampling(true) }
+        // nettop (per-app traffic) runs only while the section is on screen.
+        .onAppear { model.setNetworkProcessSampling(settings.shows(.networkApps)) }
         .onDisappear { model.setNetworkProcessSampling(false) }
+        .onChange(of: settings.shows(.networkApps)) { model.setNetworkProcessSampling($0) }
     }
 }
 
@@ -240,6 +281,7 @@ struct NetworkTab: View {
 
 struct SensorsTab: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         let snapshot = model.snapshot
@@ -252,13 +294,16 @@ struct SensorsTab: View {
                     Spacer()
                     thermalBadge(snapshot.thermalState)
                 }
-                MetricChart(model: model, title: "Temperature", lines: [
-                    ChartLine(metric: .cpuTemp, name: "CPU", color: 0),
-                    ChartLine(metric: .ssdTemp, name: "SSD", color: 1),
-                ], scale: .temperature)
+                if settings.shows(.sensorsChart) {
+                    MetricChart(model: model, title: "Temperature", lines: [
+                        ChartLine(metric: .cpuTemp, name: "CPU", color: 0),
+                        ChartLine(metric: .ssdTemp, name: "SSD", color: 1),
+                    ], scale: .temperature)
+                    .hideable(.sensorsChart)
+                }
             }
 
-            if let smc = snapshot.smc, !smc.fans.isEmpty || smc.systemPower != nil {
+            if settings.shows(.sensorsFans), let smc = snapshot.smc, !smc.fans.isEmpty || smc.systemPower != nil {
                 Card(title: "Ventole e alimentazione") {
                     ForEach(smc.fans) { fan in FanRow(fan: fan, hardware: model.hardware) }
                     StatGrid(items: [
@@ -273,14 +318,16 @@ struct SensorsTab: View {
                     MetricChart(model: model, title: "Consumo", lines: [ChartLine(metric: .power, name: "Sistema", color: 3)],
                                 scale: .watts, height: 50)
                 }
+                .hideable(.sensorsFans)
             }
 
+            if settings.shows(.sensorsGrid) {
             Card(title: "Sensori", trailing: "\(sensors.readings.count + (snapshot.smc?.cpuCoreTemperatures.count ?? 0) + (snapshot.smc?.gpuTemperatures.count ?? 0))") {
                 SensorGrid(readings: sensors.readings, smc: snapshot.smc)
             }
+            .hideable(.sensorsGrid)
+            }
         }
-        .onAppear { model.setFastSensors(true) }
-        .onDisappear { model.setFastSensors(false) }
     }
 
     private func thermalBadge(_ state: ProcessInfo.ThermalState) -> some View {
@@ -430,6 +477,7 @@ struct SensorGrid: View {
 
 struct BatteryTab: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = Settings.shared
     @State private var changingLowPower = false
 
     var body: some View {
@@ -446,10 +494,16 @@ struct BatteryTab: View {
                             .foregroundStyle(battery.percent <= 0.2 && !battery.onACPower ? Color.red : Palette.color(2))
                     }
                     UsageBar(fraction: battery.percent, color: Palette.color(2), height: 7)
-                    MetricChart(model: model, title: "Carica", lines: [ChartLine(metric: .battery, name: "Carica", color: 2)], scale: .percent)
-                    MetricChart(model: model, title: "Potenza (+ in carica, − in uso)",
-                                lines: [ChartLine(metric: .batteryPower, name: "Potenza", color: 3)], scale: .watts, height: 50)
+                    if settings.shows(.batteryCharts) {
+                        Group {
+                            MetricChart(model: model, title: "Carica", lines: [ChartLine(metric: .battery, name: "Carica", color: 2)], scale: .percent)
+                            MetricChart(model: model, title: "Potenza (+ in carica, − in uso)",
+                                        lines: [ChartLine(metric: .batteryPower, name: "Potenza", color: 3)], scale: .watts, height: 50)
+                        }
+                        .hideable(.batteryCharts)
+                    }
                 }
+                if settings.shows(.batteryHealth) {
                 Card(title: "Salute") {
                     StatGrid(items: [
                         ("Capacità massima", battery.health.map { Format.percent($0) + (battery.healthIsOfficial ? "" : " (stima)") } ?? "—"),
@@ -461,6 +515,9 @@ struct BatteryTab: View {
                         ("Temperatura", (battery.temperature ?? snapshot.sensors.batteryTemperature).map { Format.temperature($0) } ?? "—"),
                     ])
                 }
+                .hideable(.batteryHealth)
+                }
+                if settings.shows(.batteryPower) {
                 Card(title: "Alimentazione") {
                     StatGrid(items: [
                         ("Potenza", battery.watts.map { String(format: "%+.1f W", $0) } ?? "—"),
@@ -469,6 +526,9 @@ struct BatteryTab: View {
                         ("Alimentatore", battery.adapterWatts.map { "\($0) W" } ?? (battery.onACPower ? "Sì" : "No")),
                     ])
                 }
+                .hideable(.batteryPower)
+                }
+                if settings.shows(.batteryControls) {
                 Card(title: "Controlli") {
                     Toggle(isOn: Binding(get: { snapshot.lowPowerMode }, set: { enabled in
                         changingLowPower = true
@@ -482,6 +542,8 @@ struct BatteryTab: View {
                         Label("Impostazioni Batteria…", systemImage: "gearshape")
                     }
                     .buttonStyle(.link).font(.system(size: 12))
+                }
+                .hideable(.batteryControls)
                 }
             } else {
                 Card { Text("Nessuna batteria: il Mac è alimentato dalla rete.").foregroundStyle(.secondary) }

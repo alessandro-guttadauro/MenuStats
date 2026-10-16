@@ -33,6 +33,9 @@ M3 Pro con macOS 27. Per compilare: Xcode 26 o successivo (icona Liquid Glass co
   mirino al passaggio del mouse, barre per core (efficienza/prestazioni), composizione della memoria,
   volumi (usato / eliminabile / libero), app che usano più CPU, memoria, disco e rete (raggruppate per app),
   ventole e consumo, griglia dei sensori, salute della batteria e modalità basso consumo.
+- **Sezioni della tendina a scelta**: per ogni scheda puoi nascondere grafici, elenchi di processi, volumi,
+  sensori e altro (Impostazioni ▸ modulo ▸ Sezioni nella tendina, oppure clic destro su una sezione).
+  Una sezione nascosta non viene nemmeno misurata.
 - **Notifiche**: CPU alta, temperatura alta, batteria scarica o carica, ventole al massimo.
 - **Storico** SQLite di 8 giorni, **apertura al login**, °C/°F, intervallo di aggiornamento.
 - **Controllo ventole** (Auto / Personalizzato con slider per ventola) nella scheda Sensori e in
@@ -54,6 +57,23 @@ build/MenuStats.app/Contents/MacOS/MenuStats --self-test /tmp/live   # apre ogni
 ```
 
 Clic su un modulo: tendina sulla scheda giusta. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
+
+## Efficienza
+
+MenuStats legge spesso solo ciò che è sullo schermo in quel momento:
+- **Barra**: CPU, memoria, rete, disco e batteria a ogni aggiornamento (pochi microsecondi l'uno). Temperature
+  e ventole dall'SMC a ogni aggiornamento solo se i rispettivi moduli sono in barra, altrimenti ogni 10 s.
+- **Tendina**: processi, volumi, sensori completi, GPU e traffico per app (`nettop`) solo mentre la loro
+  sezione è visibile.
+- I sensori HID (~1 ms l'uno) si leggono in background: solo SSD e batteria ogni 10 s, tutti con la scheda
+  Sensori aperta. Le chiavi SMC memorizzano tipo e dimensione; i limiti delle ventole si leggono una volta.
+- Spazio disco con `statfs` (lo spazio eliminabile, lento da calcolare, solo nella scheda Disco); dettagli
+  della batteria ogni 30 s; contatori della sola interfaccia di rete principale.
+- La barra è rasterizzata e aggiornata solo se i pixel cambiano; il timer ha una tolleranza del 10% e si
+  ferma quando gli schermi sono spenti.
+
+A riposo (MacBook Pro M3 Pro): circa 1% di CPU di un core, ciclo di campionamento ~2,5 ms ogni 2 s.
+Misura con `swift run -c release MenuStats --benchmark`.
 
 ## Attendibilità
 

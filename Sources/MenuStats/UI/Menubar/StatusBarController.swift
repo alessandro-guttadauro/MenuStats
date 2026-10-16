@@ -14,6 +14,10 @@ final class StatusBarController: NSObject {
         var modules: [ModuleID]
         var hitRanges: [(ModuleID, ClosedRange<CGFloat>)] = []
         var imageWidth: CGFloat = 0
+        /// Pixels of the image currently shown, to skip identical updates.
+        var pixels = Data()
+        /// Appearance the shown bitmap was rasterized for; a light/dark switch forces a new one on the next render.
+        var appearanceName: NSAppearance.Name?
     }
 
     private var entries: [Entry] = []
@@ -73,8 +77,18 @@ final class StatusBarController: NSObject {
             fanAngle: fanAngle
         )
         for index in entries.indices {
+            guard let button = entries[index].item.button else { continue }
             let rendered = MenubarRenderer.image(for: entries[index].modules, context: context)
-            entries[index].item.button?.image = rendered.image
+            // Rasterize once, in the menu bar's appearance, and hand AppKit a bitmap only when its pixels changed:
+            // an NSImage drawing handler would re-run text layout on every redraw of the menu bar.
+            let appearance = button.effectiveAppearance
+            let bitmap = Self.rasterize(rendered.image, appearance: appearance,
+                                        scale: button.window?.backingScaleFactor ?? 2)
+            if bitmap.pixels != entries[index].pixels || entries[index].appearanceName != appearance.name {
+                entries[index].appearanceName = appearance.name
+                button.image = bitmap.image
+                entries[index].pixels = bitmap.pixels
+            }
             // Exact width instead of variableLength (which pads both sides). Only when it changes:
             // every length change makes macOS re-layout the whole menu bar.
             let length = ceil(rendered.image.size.width) + 2
@@ -82,6 +96,25 @@ final class StatusBarController: NSObject {
             entries[index].hitRanges = rendered.hitRanges
             entries[index].imageWidth = rendered.image.size.width
         }
+    }
+
+    private static func rasterize(_ image: NSImage, appearance: NSAppearance, scale: CGFloat) -> (image: NSImage, pixels: Data) {
+        let size = image.size
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(size.width * scale)),
+                                         pixelsHigh: Int(ceil(size.height * scale)), bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return (image, Data()) }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        appearance.performAsCurrentDrawingAppearance { image.draw(in: NSRect(origin: .zero, size: size)) }
+        NSGraphicsContext.restoreGraphicsState()
+
+        let result = NSImage(size: size)
+        result.addRepresentation(rep)
+        result.isTemplate = image.isTemplate
+        let pixels = rep.bitmapData.map { Data(bytes: $0, count: rep.bytesPerRow * rep.pixelsHigh) } ?? Data()
+        return (result, pixels)
     }
 
     // MARK: - Fan animation

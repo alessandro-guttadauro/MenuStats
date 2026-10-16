@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -41,6 +42,37 @@ final class AppModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] interval in self?.schedule(interval) }
             .store(in: &cancellables)
+        // The menu bar's visible modules decide which sources are read every sample.
+        Publishers.CombineLatest(settings.$enabledModules, settings.$moduleOrder)
+            .sink { [weak self] enabled, order in self?.monitor.demand.menubar = Set(order.filter(enabled.contains)) }
+            .store(in: &cancellables)
+        settings.$hiddenSections
+            .sink { [weak self] hidden in self?.monitor.demand.hidden = hidden }
+            .store(in: &cancellables)
+
+        // Nothing is on screen while the displays sleep or another user is active: stop sampling.
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.pause() }
+        }
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.resume() }
+        }
+    }
+
+    private var paused = false
+
+    private func pause() {
+        paused = true
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func resume() {
+        guard paused else { return }
+        paused = false
+        tick()
+        schedule(settings.refreshInterval)
     }
 
     func start() {
@@ -52,6 +84,8 @@ final class AppModel: ObservableObject {
         timer?.invalidate()
         guard interval > 0 else { return }
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+        // Tolerance lets macOS coalesce this wake-up with others (fewer CPU wake-ups, less energy).
+        timer.tolerance = interval * 0.1
         RunLoop.main.add(timer, forMode: .common) // keeps ticking while menus or the panel are tracking
         self.timer = timer
     }
@@ -78,9 +112,21 @@ final class AppModel: ObservableObject {
 
     func warmUpSensors() { monitor.sampleSensorsNow() }
 
-    /// Temperatures refresh every sample while the sensors tab is visible, every 5 s otherwise.
-    func setFastSensors(_ enabled: Bool) {
-        monitor.sensorsInterval = enabled ? 0 : 5
+    /// The dashboard tab on screen (nil when closed). Opening or switching tabs samples right away, and again
+    /// one second later so per-process rates (which need two samples) appear quickly.
+    func setVisibleTab(_ tab: DashboardTab?) {
+        guard monitor.demand.tab != tab else { return }
+        let opening = monitor.demand.tab == nil && tab != nil
+        monitor.demand.tab = tab
+        guard let tab else { return }
+        if opening { monitor.refreshSoon() }
+        tick()
+        if [.cpu, .memory, .disk, .network].contains(tab) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard self?.monitor.demand.tab == tab else { return }
+                self?.tick()
+            }
+        }
     }
 
     /// Recent values for the small graphs drawn in the menu bar.

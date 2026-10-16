@@ -9,6 +9,10 @@ enum UITestRenderer {
 
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             for tab in DashboardTab.allCases {
+                // Sample as the real dropdown would for this tab (processes, volumes, all sensors).
+                model.setVisibleTab(tab)
+                Thread.sleep(forTimeInterval: 1.1)
+                model.tick()
                 let state = DashboardState()
                 state.tab = tab
                 let view = DashboardView(model: model, state: state, maxContentHeight: 2000, openSettings: {}, quit: {})

@@ -28,6 +28,16 @@ enum Palette {
 
 // MARK: - Layout pieces
 
+extension View {
+    /// Right-click ▸ "Nascondi sezione" on an optional dropdown section (re-enable it in Settings).
+    func hideable(_ section: PanelSection) -> some View {
+        contextMenu {
+            Button("Nascondi “\(section.title)”") { Settings.shared.setShown(section, false) }
+            Text("Puoi riattivarla in Impostazioni ▸ \(section.module.name)")
+        }
+    }
+}
+
 struct Card<Content: View>: View {
     var title: String?
     var trailing: String?

@@ -81,6 +81,79 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     }
 }
 
+/// Optional sections of the dropdown. A hidden section is also not measured (no process list, no nettop,
+/// no full sensor scan…), so hiding what you don't use makes MenuStats lighter.
+enum PanelSection: String, CaseIterable, Identifiable, Codable {
+    case cpuChart, cpuCores, cpuLoad, cpuProcesses
+    case memoryComposition, memoryCharts, memoryProcesses
+    case diskVolumes, diskChart, diskProcesses
+    case networkChart, networkConnection, networkApps
+    case sensorsChart, sensorsFans, sensorsGrid
+    case batteryCharts, batteryHealth, batteryPower, batteryControls
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cpuChart: "Grafico utilizzo"
+        case .cpuCores: "Core"
+        case .cpuLoad: "Carico"
+        case .cpuProcesses: "Processi"
+        case .memoryComposition: "Composizione"
+        case .memoryCharts: "Grafici memoria e swap"
+        case .memoryProcesses: "Processi"
+        case .diskVolumes: "Volumi"
+        case .diskChart: "Grafico attività"
+        case .diskProcesses: "Processi"
+        case .networkChart: "Grafico traffico"
+        case .networkConnection: "Connessione"
+        case .networkApps: "App (download + upload)"
+        case .sensorsChart: "Grafico temperature"
+        case .sensorsFans: "Ventole e alimentazione"
+        case .sensorsGrid: "Elenco sensori"
+        case .batteryCharts: "Grafici carica e potenza"
+        case .batteryHealth: "Salute"
+        case .batteryPower: "Alimentazione"
+        case .batteryControls: "Controlli"
+        }
+    }
+
+    /// What hiding it saves, shown in Settings.
+    var saving: String? {
+        switch self {
+        case .cpuProcesses, .memoryProcesses, .diskProcesses: "non elenca i processi"
+        case .networkApps: "non avvia nettop"
+        case .sensorsGrid: "non legge tutti i sensori né la GPU"
+        case .diskVolumes: "non calcola lo spazio eliminabile"
+        case .sensorsFans: "legge ventole e consumo più di rado"
+        default: nil
+        }
+    }
+
+    var tab: DashboardTab {
+        switch self {
+        case .cpuChart, .cpuCores, .cpuLoad, .cpuProcesses: .cpu
+        case .memoryComposition, .memoryCharts, .memoryProcesses: .memory
+        case .diskVolumes, .diskChart, .diskProcesses: .disk
+        case .networkChart, .networkConnection, .networkApps: .network
+        case .sensorsChart, .sensorsFans, .sensorsGrid: .sensors
+        case .batteryCharts, .batteryHealth, .batteryPower, .batteryControls: .battery
+        }
+    }
+
+    /// The settings page that lists it.
+    var module: ModuleID {
+        switch tab {
+        case .cpu: .cpu
+        case .memory: .memory
+        case .disk: .disk
+        case .network: .network
+        case .sensors: self == .sensorsFans ? .fans : .sensors
+        case .battery: .battery
+        }
+    }
+}
+
 // MARK: - Per-module menu bar styles
 
 protocol StyleOption: RawRepresentable, CaseIterable, Identifiable, Hashable where RawValue == String {
@@ -113,7 +186,7 @@ enum NetworkStyle: String, StyleOption {
 
 enum SensorSource: String, StyleOption {
     case cpuAverage, cpuMax, hottest, ssd, battery
-    var label: String { ["CPU (media)", "CPU (massima)", "Sensore più caldo", "SSD", "Batteria"][Self.allCases.firstIndex(of: self)!] }
+    var label: String { ["CPU (media dei core)", "CPU (core più caldo)", "Sensore più caldo", "SSD", "Batteria"][Self.allCases.firstIndex(of: self)!] }
 }
 
 enum FanStyle: String, StyleOption {
@@ -158,6 +231,7 @@ final class Settings: ObservableObject {
     }
     @Published var processCount: Int { didSet { save(processCount, "processCount") } }
     @Published var groupProcessesByApp: Bool { didSet { save(groupProcessesByApp, "groupProcessesByApp") } }
+    @Published var hiddenSections: Set<PanelSection> { didSet { save(hiddenSections.map(\.rawValue), "hiddenSections") } }
 
     // Menu bar modules
     @Published var moduleOrder: [ModuleID] { didSet { save(moduleOrder.map(\.rawValue), "moduleOrder") } }
@@ -208,6 +282,7 @@ final class Settings: ObservableObject {
         })
         processCount = defaults.object(forKey: "processCount") as? Int ?? 5
         groupProcessesByApp = bool("groupProcessesByApp", true)
+        hiddenSections = Set((defaults.stringArray(forKey: "hiddenSections") ?? []).compactMap(PanelSection.init(rawValue:)))
 
         let savedOrder = (defaults.stringArray(forKey: "moduleOrder") ?? []).compactMap(ModuleID.init(rawValue:))
         moduleOrder = (savedOrder + ModuleID.allCases.filter { !savedOrder.contains($0) }).filter(\.isAvailable)
@@ -252,6 +327,12 @@ final class Settings: ObservableObject {
     var visibleModules: [ModuleID] { moduleOrder.filter(enabledModules.contains) }
 
     func isEnabled(_ module: ModuleID) -> Bool { enabledModules.contains(module) }
+
+    func shows(_ section: PanelSection) -> Bool { !hiddenSections.contains(section) }
+
+    func setShown(_ section: PanelSection, _ shown: Bool) {
+        if shown { hiddenSections.remove(section) } else { hiddenSections.insert(section) }
+    }
 
     func setEnabled(_ module: ModuleID, _ enabled: Bool) {
         if enabled {

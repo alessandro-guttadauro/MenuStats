@@ -79,3 +79,27 @@ int MSSMCWrite(io_connect_t connection, const char *key, const uint8_t *bytes, u
     if (result != KERN_SUCCESS) return (int)result;
     return output.result == 0 ? 0 : -(int)output.result;
 }
+
+int MSSMCKeyInfo(io_connect_t connection, const char *key, uint32_t *dataSize, uint32_t *dataType) {
+    if (!connection || strlen(key) != 4) return -1;
+    SMCParam input = {0}, output = {0};
+    input.key = SMCKeyCode(key);
+    input.data8 = kSMCGetKeyInfo;
+    if (SMCCall(connection, &input, &output) != KERN_SUCCESS || output.result != 0) return -1;
+    *dataSize = output.keyInfo.dataSize;
+    *dataType = output.keyInfo.dataType;
+    return 0;
+}
+
+int MSSMCReadKnown(io_connect_t connection, const char *key, uint32_t dataSize, uint32_t dataType, MSSMCValue *value) {
+    if (!connection || strlen(key) != 4 || dataSize == 0 || dataSize > 32) return -1;
+    SMCParam input = {0}, output = {0};
+    input.key = SMCKeyCode(key);
+    input.keyInfo.dataSize = dataSize;
+    input.data8 = kSMCReadKey;
+    if (SMCCall(connection, &input, &output) != KERN_SUCCESS || output.result != 0) return -1;
+    value->dataType = dataType;
+    value->dataSize = dataSize;
+    memcpy(value->bytes, output.bytes, dataSize);
+    return 0;
+}

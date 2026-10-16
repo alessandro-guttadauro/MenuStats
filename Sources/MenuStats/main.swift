@@ -6,6 +6,7 @@ let arguments = CommandLine.arguments
 // `MenuStats --dump` prints one reading of everything to the terminal and exits.
 if arguments.contains("--dump") {
     let monitor = SystemMonitor()
+    monitor.demand.tab = .cpu // ask for everything a dropdown tab would show, including processes
     _ = monitor.sample() // rates and CPU usage need two samples
     monitor.sampleSensorsNow()
     Thread.sleep(forTimeInterval: 1)

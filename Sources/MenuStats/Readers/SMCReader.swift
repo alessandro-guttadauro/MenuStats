@@ -61,17 +61,54 @@ final class SMCReader {
 
     deinit { MSSMCClose(connection) }
 
-    func sample() -> SMCStats? {
+    /// True when this chip's CPU temperature comes from SMC per-core keys (so the HID die sensors aren't needed).
+    var hasCoreMap: Bool { !(sensorKeys?.cpuCores.isEmpty ?? true) }
+
+    /// Groups of keys that can be refreshed at different rates. Each SMC read is a firmware round trip
+    /// (~0.25 ms), so only what is on screen is read every sample; the rest refreshes slowly for history and alerts.
+    enum Part: CaseIterable {
+        case fans, power, cpuTemperatures, gpuTemperatures
+
+        /// Refresh interval when nothing on screen shows this part.
+        var slowInterval: Double {
+            switch self {
+            case .fans, .power, .cpuTemperatures: 10
+            case .gpuTemperatures: 60
+            }
+        }
+    }
+
+    private var last = SMCStats(fans: [])
+    private var lastRead: [Part: Double] = [:]
+    /// Fan limits are fixed by the hardware: read once.
+    private lazy var fanLimits: [(minimum: Double, maximum: Double)] = (0..<min(fanCount, 4)).map {
+        (read("F\($0)Mn") ?? 0, read("F\($0)Mx") ?? 0)
+    }
+
+    /// `live` parts are read every call; the others when their slow interval has passed.
+    func sample(live: Set<Part> = Set(Part.allCases)) -> SMCStats? {
         guard connection != 0 else { return nil }
-        let fans = (0..<min(fanCount, 4)).compactMap { index -> FanInfo? in
-            guard let rpm = read("F\(index)Ac") else { return nil }
-            return FanInfo(id: index, rpm: rpm, minimum: read("F\(index)Mn") ?? 0, maximum: read("F\(index)Mx") ?? 0)
+        let now = uptimeSeconds()
+        func due(_ part: Part) -> Bool {
+            guard live.contains(part) || now - (lastRead[part] ?? -.infinity) >= part.slowInterval else { return false }
+            lastRead[part] = now
+            return true
         }
         // Discard unplugged/idle readings outside a plausible range.
         func temperatures(_ keys: [String]) -> [Double] { keys.compactMap(read).filter { $0 > 5 && $0 < 130 } }
-        return SMCStats(fans: fans, systemPower: read("PSTR"), adapterPower: read("PDTR"),
-                        cpuCoreTemperatures: temperatures(sensorKeys?.cpuCores ?? []),
-                        gpuTemperatures: temperatures(sensorKeys?.gpu ?? []))
+
+        if due(.fans) {
+            last.fans = fanLimits.enumerated().compactMap { index, limits in
+                read("F\(index)Ac").map { FanInfo(id: index, rpm: $0, minimum: limits.minimum, maximum: limits.maximum) }
+            }
+        }
+        if due(.power) {
+            last.systemPower = read("PSTR")
+            last.adapterPower = read("PDTR")
+        }
+        if due(.cpuTemperatures) { last.cpuCoreTemperatures = temperatures(sensorKeys?.cpuCores ?? []) }
+        if due(.gpuTemperatures) { last.gpuTemperatures = temperatures(sensorKeys?.gpu ?? []) }
+        return last
     }
 
     /// CPU temperature for chips missing from `SMCSensorMap`: every `Tf??` key that reads a float in a believable
@@ -88,10 +125,21 @@ final class SMCReader {
         return keys.isEmpty ? nil : SMCSensorMap.Keys(cpuCores: keys, gpu: [])
     }
 
+    /// Key metadata (size, type) never changes: cache it so each later read is one kernel call instead of two.
+    private var keyInfo: [String: (size: UInt32, type: UInt32)] = [:]
+    private var missingKeys: Set<String> = []
+
     /// Reads a key and decodes the common numeric SMC types.
     private func read(_ key: String) -> Double? {
+        guard !missingKeys.contains(key) else { return nil }
+        if keyInfo[key] == nil {
+            var size: UInt32 = 0, type: UInt32 = 0
+            guard MSSMCKeyInfo(connection, key, &size, &type) == 0 else { missingKeys.insert(key); return nil }
+            keyInfo[key] = (size, type)
+        }
+        guard let info = keyInfo[key] else { return nil }
         var value = MSSMCValue()
-        guard MSSMCRead(connection, key, &value) == 0 else { return nil }
+        guard MSSMCReadKnown(connection, key, info.size, info.type, &value) == 0 else { return nil }
         let bytes = withUnsafeBytes(of: value.bytes) { Array($0.prefix(Int(value.dataSize))) }
         guard !bytes.isEmpty else { return nil }
 
