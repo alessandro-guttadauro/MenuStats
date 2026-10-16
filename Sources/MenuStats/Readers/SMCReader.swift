@@ -118,3 +118,22 @@ final class SMCReader {
         String(bytes: [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: code >> $0) }, encoding: .ascii) ?? ""
     }
 }
+
+/// What this Mac physically has, so the app can hide modules for missing hardware (fanless MacBook Air, desktops).
+enum HardwarePresence {
+    /// Fan count from the SMC (`FNum`); fanless Macs report 0. True when it can't be read, so nothing is hidden by mistake.
+    static let hasFans: Bool = {
+        let connection = MSSMCOpen()
+        guard connection != 0 else { return true }
+        defer { MSSMCClose(connection) }
+        var value = MSSMCValue()
+        guard MSSMCRead(connection, "FNum", &value) == 0, value.dataSize > 0 else { return true }
+        return value.bytes.0 > 0
+    }()
+
+    static let hasBattery: Bool = {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        defer { if service != 0 { IOObjectRelease(service) } }
+        return service != 0
+    }()
+}
