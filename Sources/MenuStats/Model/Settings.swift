@@ -122,8 +122,8 @@ enum FanStyle: String, StyleOption {
 }
 
 enum BatteryStyle: String, StyleOption {
-    case percent, time, watts, iconOnly
-    var label: String { ["Percentuale", "Tempo rimanente", "Potenza (W)", "Solo icona"][Self.allCases.firstIndex(of: self)!] }
+    case percent, time, watts, iconOnly, insidePercent
+    var label: String { ["Percentuale", "Tempo rimanente", "Potenza (W)", "Solo icona", "Percentuale nell'icona"][Self.allCases.firstIndex(of: self)!] }
 }
 
 enum MenubarLayout: String, StyleOption {

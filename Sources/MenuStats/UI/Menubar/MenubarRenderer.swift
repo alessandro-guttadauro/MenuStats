@@ -217,6 +217,12 @@ enum MenubarRenderer {
             return compose(.battery, [glyph, .text(battery.isCharging ? "IN" : "OUT", watts, template: "100W")])
         case .iconOnly:
             return compose(.battery, [glyph])
+        case .insidePercent:
+            return compose(.battery, [.batteryPercent(level: battery.percent,
+                                                      charging: battery.isCharging,
+                                                      pluggedIn: battery.onACPower && !battery.isCharging,
+                                                      lowPower: dynamic && context.snapshot.lowPowerMode,
+                                                      emphasized: low)])
         }
     }
 
@@ -231,6 +237,8 @@ enum MenubarRenderer {
         case symbol(String, size: CGFloat)
         case fan(angle: CGFloat, dimmed: Bool)
         case battery(level: Double, charging: Bool, pluggedIn: Bool, lowPower: Bool)
+        /// A larger battery with the percentage written inside the fill.
+        case batteryPercent(level: Double, charging: Bool, pluggedIn: Bool, lowPower: Bool, emphasized: Bool)
     }
 
     private static let partGap: CGFloat = 3
@@ -295,6 +303,7 @@ enum MenubarRenderer {
         case .symbol(_, let size): return size + 3
         case .fan: return 14
         case .battery(_, _, _, let lowPower): return lowPower ? 31 : 22
+        case .batteryPercent(_, _, _, let lowPower, _): return lowPower ? 40 : 31
         }
     }
 
@@ -402,6 +411,41 @@ enum MenubarRenderer {
             }
             if lowPower {
                 drawSymbol("leaf.fill", size: 8, in: NSRect(x: rect.minX + 22, y: rect.minY, width: 9, height: rect.height),
+                           color: ink.base)
+            }
+
+        case .batteryPercent(let level, let charging, let pluggedIn, let lowPower, let emphasized):
+            let body = NSRect(x: rect.minX + 0.5, y: rect.midY - 6.5, width: 28, height: 13)
+            let outline = NSBezierPath(roundedRect: body, xRadius: 3.5, yRadius: 3.5)
+            outline.lineWidth = 1
+            ink.base.withAlphaComponent(0.55).setStroke()
+            outline.stroke()
+            ink.base.withAlphaComponent(0.55).setFill()
+            NSBezierPath(roundedRect: NSRect(x: body.maxX + 1, y: body.midY - 2.5, width: 1.5, height: 5), xRadius: 0.75, yRadius: 0.75).fill()
+
+            // The fill is translucent so the number stays readable at every level.
+            let inner = body.insetBy(dx: 1.75, dy: 1.75)
+            var fill = inner
+            fill.size.width = max(1.5, inner.width * CGFloat(min(max(level, 0), 1)))
+            ink.accent.withAlphaComponent(0.5).setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 2, yRadius: 2).fill()
+
+            let text = String(Int((level * 100).rounded()))
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: emphasized ? .heavy : .bold)
+            let symbol = charging ? "bolt.fill" : (pluggedIn ? "powerplug.fill" : nil)
+            let glyph = symbol.flatMap { symbolImage($0, size: 6.5) }
+            let textWidth = measure(text, font)
+            let glyphWidth = glyph.map { $0.size.width + 1 } ?? 0
+            var x = body.midX - (textWidth + glyphWidth) / 2
+            if let glyph {
+                tinted(glyph, ink.value).draw(in: NSRect(x: x, y: body.midY - glyph.size.height / 2,
+                                                         width: glyph.size.width, height: glyph.size.height),
+                                              from: .zero, operation: .sourceOver, fraction: 1)
+                x += glyphWidth
+            }
+            drawText(text, font: font, color: ink.value, in: NSRect(x: x, y: body.midY - 6.5, width: textWidth + 1, height: 13))
+            if lowPower {
+                drawSymbol("leaf.fill", size: 8, in: NSRect(x: rect.minX + 31, y: rect.minY, width: 9, height: rect.height),
                            color: ink.base)
             }
         }
