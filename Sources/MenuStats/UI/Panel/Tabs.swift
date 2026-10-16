@@ -247,8 +247,8 @@ struct SensorsTab: View {
         VStack(spacing: 8) {
             Card {
                 HStack(alignment: .top) {
-                    Hero(value: sensors.cpuAverage.map { Format.temperature($0) } ?? "—",
-                         caption: sensors.cpuMax.map { "CPU · massima \(Format.temperature($0))" } ?? "CPU")
+                    Hero(value: snapshot.cpuTemperature.map { Format.temperature($0) } ?? "—",
+                         caption: snapshot.cpuTemperatureMax.map { "CPU (media dei core) · massima \(Format.temperature($0))" } ?? "CPU")
                     Spacer()
                     thermalBadge(snapshot.thermalState)
                 }
@@ -275,8 +275,8 @@ struct SensorsTab: View {
                 }
             }
 
-            Card(title: "Sensori", trailing: "\(sensors.readings.count)") {
-                SensorGrid(readings: sensors.readings)
+            Card(title: "Sensori", trailing: "\(sensors.readings.count + (snapshot.smc?.cpuCoreTemperatures.count ?? 0) + (snapshot.smc?.gpuTemperatures.count ?? 0))") {
+                SensorGrid(readings: sensors.readings, smc: snapshot.smc)
             }
         }
         .onAppear { model.setFastSensors(true) }
@@ -307,6 +307,11 @@ struct FanRow: View {
                 Text(fan.name).font(.system(size: 12, weight: .medium))
                 Spacer()
                 Text(fan.rpm > 0 ? Format.rpm(fan.rpm) : "Ferma").font(.system(size: 12)).monospacedDigit()
+                Text(Format.percent(fan.fraction))
+                    .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Palette.color(2).opacity(0.15)))
+                    .help("Percentuale della velocità massima")
             }
             UsageBar(fraction: fan.fraction, color: Palette.color(2), height: 5)
             Text("min \(Format.rpm(fan.minimum)) · max \(Format.rpm(fan.maximum))")
@@ -367,12 +372,20 @@ struct SpinningFan: View {
 /// Sensors grouped by kind, as compact cells.
 struct SensorGrid: View {
     var readings: [SensorReading]
+    var smc: SMCStats? = nil
 
     private var groups: [(String, [SensorReading])] {
+        let cores = (smc?.cpuCoreTemperatures ?? []).enumerated().map { SensorReading(name: "\($0.offset + 1)", celsius: $0.element) }
+        let gpu = (smc?.gpuTemperatures ?? []).enumerated().map { SensorReading(name: "\($0.offset + 1)", celsius: $0.element) }
+        let smcGroups = [("Core CPU", cores), ("GPU", gpu)].filter { !$0.1.isEmpty }
+        return smcGroups + hidGroups
+    }
+
+    private var hidGroups: [(String, [SensorReading])] {
         let die = readings.filter { $0.name.contains("tdie") }
         let device = readings.filter { $0.name.contains("tdev") }
         let other = readings.filter { !$0.name.contains("tdie") && !$0.name.contains("tdev") }
-        return [("CPU", die), ("SoC", device), ("Altri", other)].filter { !$0.1.isEmpty }
+        return [("Die CPU", die), ("SoC", device), ("Altri", other)].filter { !$0.1.isEmpty }
     }
 
     var body: some View {
@@ -404,7 +417,8 @@ struct SensorGrid: View {
 
     private func shortName(_ name: String, group: String) -> String {
         switch group {
-        case "CPU", "SoC": name.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+        case "Core CPU", "GPU": name
+        case "Die CPU", "SoC": name.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
         default: name.replacingOccurrences(of: "gas gauge battery", with: "Batteria")
                      .replacingOccurrences(of: "NAND CH0 temp", with: "SSD")
                      .replacingOccurrences(of: "PMU tcal", with: "Calibrazione")

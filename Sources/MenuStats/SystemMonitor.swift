@@ -16,6 +16,10 @@ struct Snapshot {
     var lowPowerMode = false
 
     var ssdTemperature: Double? { sensors.readings.first { $0.name.contains("NAND") }?.celsius }
+    /// CPU temperature as iStat Menus reports it (average of the SMC per-core sensors); HID die sensors as fallback.
+    var cpuTemperature: Double? { smc?.cpuTemperature ?? sensors.cpuAverage }
+    var cpuTemperatureMax: Double? { smc?.cpuTemperatureMax ?? sensors.cpuMax }
+    var gpuTemperature: Double? { smc?.gpuTemperature }
     var maxFanRPM: Double? { smc?.fans.map(\.rpm).max() }
     var fansSpinning: Bool { (maxFanRPM ?? 0) > 0 }
 }

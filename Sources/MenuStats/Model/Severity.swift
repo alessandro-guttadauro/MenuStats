@@ -62,8 +62,8 @@ enum Severity: Int, Comparable {
 
         case .sensors:
             let celsius: Double? = switch source {
-            case .cpuAverage: snapshot.sensors.cpuAverage
-            case .cpuMax: snapshot.sensors.cpuMax
+            case .cpuAverage: snapshot.cpuTemperature
+            case .cpuMax: snapshot.cpuTemperatureMax
             case .hottest: snapshot.sensors.hottest?.celsius
             case .ssd: snapshot.ssdTemperature
             case .battery: snapshot.battery?.temperature ?? snapshot.sensors.batteryTemperature

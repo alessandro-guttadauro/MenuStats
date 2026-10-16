@@ -73,7 +73,7 @@ di Sistema. Note:
 | Memoria | `host_statistics64(HOST_VM_INFO64)`, `vm.swapusage`, `kern.memorystatus_vm_pressure_level` |
 | Disco | `IOBlockStorageDriver` → `Statistics`; capacità da `URLResourceValues` |
 | Rete | `sysctl NET_RT_IFLIST2`, SystemConfiguration; per app: `nettop` (solo con la scheda Rete aperta) |
-| Temperature | `IOHIDEventSystemClient` (API privata), in background ogni 5 s |
+| Temperature | CPU e GPU: chiavi SMC per core (media dei core, come iStat Menus; tabella per chip in `SMCReader.swift`, verificata su M3 Pro). Altri sensori: `IOHIDEventSystemClient` (API privata), in background ogni 5 s |
 | Ventole, potenza | SMC in sola lettura (`F*Ac`, `F*Mn`, `F*Mx`, `PSTR`, `PDTR`) |
 | Batteria | IOPowerSources, `AppleSmartBattery`, `system_profiler SPPowerDataType` (salute) |
 | Processi | `proc_listallpids`, `proc_pid_rusage`, `proc_pidpath` |

@@ -17,7 +17,7 @@ if arguments.contains("--dump") {
         print("Volume   \(v.name): usato \(Format.percent(v.usedFraction)) · liberi \(Format.storage(v.free)) · eliminabili \(Format.storage(v.purgeable)) · totale \(Format.storage(v.total))")
     }
     if let n = s.network { print("Rete     \(n.interface ?? "-") \(n.ipAddress ?? "") ↓ \(Format.rate(n.downloadRate)) ↑ \(Format.rate(n.uploadRate))") }
-    print("Sensori  \(s.sensors.readings.count), CPU \(s.sensors.cpuAverage.map { Format.temperature($0) } ?? "-"), SSD \(s.ssdTemperature.map { Format.temperature($0) } ?? "-")")
+    print("Sensori  \(s.sensors.readings.count), CPU \(s.cpuTemperature.map { Format.temperature($0) } ?? "-"), SSD \(s.ssdTemperature.map { Format.temperature($0) } ?? "-")")
     if let smc = s.smc {
         for fan in smc.fans { print("Ventola  \(fan.name): \(Format.rpm(fan.rpm)) (min \(Format.rpm(fan.minimum)), max \(Format.rpm(fan.maximum)))") }
         print("Potenza  sistema \(smc.systemPower.map(Format.watts) ?? "-"), alimentatore \(smc.adapterPower.map(Format.watts) ?? "-")")

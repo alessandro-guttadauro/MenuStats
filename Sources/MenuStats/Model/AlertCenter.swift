@@ -25,7 +25,7 @@ final class AlertCenter {
             }
         }
 
-        if settings.alertTemperature, let temperature = snapshot.sensors.cpuAverage {
+        if settings.alertTemperature, let temperature = snapshot.cpuTemperature {
             update(.temperature, on: temperature >= settings.alertTemperatureThreshold,
                    off: temperature < settings.alertTemperatureThreshold - 5,
                    "Temperatura elevata", "La CPU è a \(Format.temperature(temperature)).")

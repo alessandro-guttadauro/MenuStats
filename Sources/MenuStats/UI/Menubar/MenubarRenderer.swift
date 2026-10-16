@@ -156,8 +156,8 @@ enum MenubarRenderer {
         let snapshot = context.snapshot
         let settings = context.options
         let (label, celsius): (String, Double?) = switch settings.sensorSource {
-        case .cpuAverage: ("CPU", snapshot.sensors.cpuAverage)
-        case .cpuMax: ("MAX", snapshot.sensors.cpuMax)
+        case .cpuAverage: ("CPU", snapshot.cpuTemperature)
+        case .cpuMax: ("MAX", snapshot.cpuTemperatureMax)
         case .hottest: ("TOP", snapshot.sensors.hottest?.celsius)
         case .ssd: ("SSD", snapshot.ssdTemperature)
         case .battery: ("BAT", snapshot.battery?.temperature ?? snapshot.sensors.batteryTemperature)

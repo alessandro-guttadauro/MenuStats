@@ -165,7 +165,7 @@ extension Snapshot {
         values[.netUp] = network?.uploadRate
         values[.diskRead] = disk?.readRate
         values[.diskWrite] = disk?.writeRate
-        values[.cpuTemp] = sensors.cpuAverage
+        values[.cpuTemp] = cpuTemperature
         values[.ssdTemp] = ssdTemperature
         values[.fan] = maxFanRPM
         values[.power] = smc?.systemPower
