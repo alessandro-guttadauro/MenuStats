@@ -96,8 +96,8 @@ final class HardwareControl: ObservableObject {
 
     private func checkVersion() {
         guard let helper = proxy({ _ in }) else { return }
-        helper.version { version in
-            DispatchQueue.main.async { [weak self] in
+        helper.version { [weak self] version in
+            DispatchQueue.main.async {
                 if version != HelperConstants.version { self?.helperState = .outdated }
             }
         }
@@ -177,10 +177,10 @@ final class HardwareControl: ObservableObject {
     // MARK: Charge limit
 
     func refreshChargeLimit() {
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
             let supported = MSChargeLimitSupported() == 1
             let limit = supported ? MSChargeLimitGet() : -1
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.async {
                 self?.chargeLimitSupported = supported
                 self?.chargeLimit = limit >= 0 ? Int(limit) : nil
             }
@@ -189,10 +189,10 @@ final class HardwareControl: ObservableObject {
 
     func setChargeLimit(_ percent: Int) {
         guard Self.chargeLimits.contains(percent) else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = MSChargeLimitSet(Int32(percent))
             let limit = MSChargeLimitGet()
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.async {
                 self?.chargeError = result == 0 && limit == percent ? nil : "macOS ha rifiutato il limite (codice \(result))"
                 self?.chargeLimit = limit >= 0 ? Int(limit) : nil
             }

@@ -13,7 +13,7 @@ struct MenubarSegment {
 /// Dynamic icons react to what the Mac is doing (load, heat, fans, charging, traffic).
 enum MenubarRenderer {
     static let height: CGFloat = 22
-    static let segmentGap: CGFloat = 4
+    static let segmentGap: CGFloat = 10
 
     struct Context {
         var snapshot: Snapshot
@@ -233,7 +233,7 @@ enum MenubarRenderer {
         case battery(level: Double, charging: Bool, pluggedIn: Bool, lowPower: Bool)
     }
 
-    private static let partGap: CGFloat = 2
+    private static let partGap: CGFloat = 3
     /// Set per segment from the context (rendering always happens on the main thread).
     private static var showLabels = true
     private static var ink = Ink(base: .black, accent: .black, value: .black)
