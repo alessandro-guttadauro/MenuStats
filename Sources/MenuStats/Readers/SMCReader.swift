@@ -42,7 +42,7 @@ enum SMCSensorMap {
         ),
         // MacBook Pro (Mac16,8). The per-core `Tp` keys sit at a 40 °C floor while a core idles, so the CPU figure uses
         // the `TfC*` die sensors instead: within ~2 °C of iStat Menus on this Mac (idle 35 vs 36, load 44 vs 42).
-        // GPU: the `Tg` sensors that track the GPU cluster (not yet compared with iStat Menus).
+        // GPU: the `Tg` sensors that track the GPU cluster (idle: 46-47 vs 46.8 in iStat Menus).
         "Apple M4 Pro": Keys(
             cpuCores: ["TfC0", "TfC1", "TfC2", "TfC3", "TfC4"],
             gpu: ["Tg05", "Tg0S", "Tg0Y", "Tg0k", "Tg0z", "Tg1V", "Tg1l"]
