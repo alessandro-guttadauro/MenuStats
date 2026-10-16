@@ -6,6 +6,17 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
     case cpu, memory, disk, network, sensors, fans, battery
     var id: String { rawValue }
 
+    /// Modules this Mac has hardware for: no Fans on a fanless MacBook Air, no Battery on a desktop.
+    var isAvailable: Bool {
+        switch self {
+        case .fans: HardwarePresence.hasFans
+        case .battery: HardwarePresence.hasBattery
+        default: true
+        }
+    }
+
+    static var available: [ModuleID] { allCases.filter(\.isAvailable) }
+
     var name: String {
         switch self {
         case .cpu: "CPU"
@@ -111,8 +122,8 @@ enum FanStyle: String, StyleOption {
 }
 
 enum BatteryStyle: String, StyleOption {
-    case percent, time, watts, iconOnly
-    var label: String { ["Percentuale", "Tempo rimanente", "Potenza (W)", "Solo icona"][Self.allCases.firstIndex(of: self)!] }
+    case percent, time, watts, iconOnly, insidePercent
+    var label: String { ["Percentuale", "Tempo rimanente", "Potenza (W)", "Solo icona", "Percentuale nell'icona"][Self.allCases.firstIndex(of: self)!] }
 }
 
 enum MenubarLayout: String, StyleOption {
@@ -199,9 +210,9 @@ final class Settings: ObservableObject {
         groupProcessesByApp = bool("groupProcessesByApp", true)
 
         let savedOrder = (defaults.stringArray(forKey: "moduleOrder") ?? []).compactMap(ModuleID.init(rawValue:))
-        moduleOrder = savedOrder + ModuleID.allCases.filter { !savedOrder.contains($0) }
+        moduleOrder = (savedOrder + ModuleID.allCases.filter { !savedOrder.contains($0) }).filter(\.isAvailable)
         enabledModules = Set((defaults.stringArray(forKey: "enabledModules")
-            ?? ["cpu", "memory", "disk", "network", "sensors", "fans"]).compactMap(ModuleID.init(rawValue:)))
+            ?? ["cpu", "memory", "disk", "network", "sensors", "fans"]).compactMap(ModuleID.init(rawValue:)).filter(\.isAvailable))
 
         cpuStyle = string("cpuStyle", CPUStyle.graphPercent)
         memoryStyle = string("memoryStyle", MemoryStyle.ringPercent)

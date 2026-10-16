@@ -40,6 +40,13 @@ enum SMCSensorMap {
             cpuCores: ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp0V", "Tp0b", "Tp0h", "Tp0n", "Tp0v", "Tp0z", "Tp17"],
             gpu: ["Tg01", "Tg05", "Tg0D", "Tg0L", "Tg0V", "Tg0v", "Tg13", "Tg1B", "Tg1l"]
         ),
+        // MacBook Pro (Mac16,8). The per-core `Tp` keys sit at a 40 °C floor while a core idles, so the CPU figure uses
+        // the `TfC*` die sensors instead: within ~2 °C of iStat Menus on this Mac (idle 35 vs 36, load 44 vs 42).
+        // GPU: the `Tg` sensors that track the GPU cluster (idle: 46-47 vs 46.8 in iStat Menus).
+        "Apple M4 Pro": Keys(
+            cpuCores: ["TfC0", "TfC1", "TfC2", "TfC3", "TfC4"],
+            gpu: ["Tg05", "Tg0S", "Tg0Y", "Tg0k", "Tg0z", "Tg1V", "Tg1l"]
+        ),
     ]
 
     static var current: Keys? { Sysctl.string("machdep.cpu.brand_string").flatMap { byChip[$0] } }
@@ -49,7 +56,8 @@ enum SMCSensorMap {
 final class SMCReader {
     private let connection = MSSMCOpen()
     private lazy var fanCount: Int = read("FNum").map { Int($0) } ?? 0
-    private let sensorKeys = SMCSensorMap.current
+    /// The chip's table entry, or for chips not listed yet (e.g. M5) the `Tf??` die sensors found on this Mac.
+    private lazy var sensorKeys = SMCSensorMap.current ?? discoverDieSensors()
 
     deinit { MSSMCClose(connection) }
 
@@ -64,6 +72,20 @@ final class SMCReader {
         return SMCStats(fans: fans, systemPower: read("PSTR"), adapterPower: read("PDTR"),
                         cpuCoreTemperatures: temperatures(sensorKeys?.cpuCores ?? []),
                         gpuTemperatures: temperatures(sensorKeys?.gpu ?? []))
+    }
+
+    /// CPU temperature for chips missing from `SMCSensorMap`: every `Tf??` key that reads a float in a believable
+    /// range. Nil (so the HID fallback applies) when the Mac has none. GPU stays on the HID fallback.
+    private func discoverDieSensors() -> SMCSensorMap.Keys? {
+        guard connection != 0 else { return nil }
+        let characters = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+        let keys = characters.flatMap { first in characters.map { "Tf\(first)\($0)" } }.filter { key in
+            var value = MSSMCValue()
+            guard MSSMCRead(connection, key, &value) == 0, fourCC(value.dataType) == "flt ",
+                  let degrees = read(key) else { return false }
+            return degrees > 20 && degrees < 120
+        }
+        return keys.isEmpty ? nil : SMCSensorMap.Keys(cpuCores: keys, gpu: [])
     }
 
     /// Reads a key and decodes the common numeric SMC types.
@@ -95,4 +117,23 @@ final class SMCReader {
     private func fourCC(_ code: UInt32) -> String {
         String(bytes: [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: code >> $0) }, encoding: .ascii) ?? ""
     }
+}
+
+/// What this Mac physically has, so the app can hide modules for missing hardware (fanless MacBook Air, desktops).
+enum HardwarePresence {
+    /// Fan count from the SMC (`FNum`); fanless Macs report 0. True when it can't be read, so nothing is hidden by mistake.
+    static let hasFans: Bool = {
+        let connection = MSSMCOpen()
+        guard connection != 0 else { return true }
+        defer { MSSMCClose(connection) }
+        var value = MSSMCValue()
+        guard MSSMCRead(connection, "FNum", &value) == 0, value.dataSize > 0 else { return true }
+        return value.bytes.0 > 0
+    }()
+
+    static let hasBattery: Bool = {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        defer { if service != 0 { IOObjectRelease(service) } }
+        return service != 0
+    }()
 }

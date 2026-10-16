@@ -47,7 +47,7 @@ struct SettingsView: View {
                     row(.menubar)
                 }
                 Section("Moduli") {
-                    ForEach(ModuleID.allCases) { row(.module($0)) }
+                    ForEach(ModuleID.available) { row(.module($0)) }
                 }
                 Section {
                     row(.notifications)
@@ -219,7 +219,7 @@ struct MenubarSettings: View {
                 Toggle("Colora le icone con un colore per modulo", isOn: $settings.colorIcons)
                 if settings.colorIcons {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], alignment: .leading, spacing: 8) {
-                        ForEach(ModuleID.allCases) { module in
+                        ForEach(ModuleID.available) { module in
                             ModuleColorPicker(module: module, settings: settings)
                         }
                     }
