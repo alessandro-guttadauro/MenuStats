@@ -6,6 +6,7 @@ enum UITestRenderer {
     static func renderAll(model: AppModel, to directory: URL) {
         let settings = model.settings
         renderMenubar(model: model, settings: settings, to: directory.appendingPathComponent("menubar.png"))
+        renderBatteryStates(model: model, settings: settings, to: directory.appendingPathComponent("battery-states.png"))
 
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             for tab in DashboardTab.allCases {
@@ -34,6 +35,53 @@ enum UITestRenderer {
     }
 
     /// Every module in every style, on a light and a dark menu bar strip.
+    /// Every battery style in every power state (simulated), at 4x, on light and dark strips.
+    private static func renderBatteryStates(model: AppModel, settings: Settings, to url: URL) {
+        let states: [(String, BatteryStats, Bool)] = [
+            ("In carica 45%", BatteryStats(percent: 0.45, isCharging: true, onACPower: true, minutesRemaining: 50), false),
+            ("Collegata 100%", BatteryStats(percent: 1, isCharging: false, onACPower: true, minutesRemaining: nil), false),
+            ("A batteria 72%", BatteryStats(percent: 0.72, isCharging: false, onACPower: false, minutesRemaining: 300), false),
+            ("Scarica 12%", BatteryStats(percent: 0.12, isCharging: false, onACPower: false, minutesRemaining: 30), false),
+            ("Basso consumo 58%", BatteryStats(percent: 0.58, isCharging: false, onACPower: false, minutesRemaining: 200), true),
+        ]
+        let styles: [BatteryStyle] = [.percent, .insidePercent, .iconOnly]
+        var images: [(String, NSImage)] = []
+        for style in styles {
+            for (title, battery, lowPower) in states {
+                var snapshot = model.snapshot
+                snapshot.battery = battery
+                snapshot.lowPowerMode = lowPower
+                var options = MenubarOptions(settings)
+                options.batteryStyle = style
+                options.dynamicIcons = true
+                let context = MenubarRenderer.Context(snapshot: snapshot, options: options, recent: { _, _ in [] })
+                images.append(("\(style.label) · \(title)", MenubarRenderer.image(for: [.battery], context: context).image))
+            }
+        }
+        let scale: CGFloat = 4, rowHeight: CGFloat = 26 * scale, labelWidth: CGFloat = 300
+        let stripWidth = (images.map(\.1.size.width).max() ?? 40) * scale + 40
+        let size = NSSize(width: labelWidth + stripWidth * 2 + 30, height: CGFloat(images.count) * (rowHeight + 8) + 10)
+        let canvas = NSImage(size: size, flipped: true) { _ in
+            NSColor.white.setFill()
+            NSRect(origin: .zero, size: size).fill()
+            for (index, row) in images.enumerated() {
+                let y = 5 + CGFloat(index) * (rowHeight + 8)
+                (row.0 as NSString).draw(at: NSPoint(x: 8, y: y + rowHeight / 2 - 8), withAttributes: [.font: NSFont.systemFont(ofSize: 14)])
+                for (column, dark) in [false, true].enumerated() {
+                    let strip = NSRect(x: labelWidth + CGFloat(column) * (stripWidth + 10), y: y, width: stripWidth, height: rowHeight)
+                    (dark ? NSColor(white: 0.15, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
+                    NSBezierPath(roundedRect: strip, xRadius: 10, yRadius: 10).fill()
+                    let flat = MenubarRenderer.rasterize(row.1, dark: dark, scale: scale)
+                    flat.draw(in: NSRect(x: strip.minX + 20, y: strip.minY + (rowHeight - row.1.size.height * scale) / 2,
+                                         width: row.1.size.width * scale, height: row.1.size.height * scale),
+                              from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none.rawValue])
+                }
+            }
+            return true
+        }
+        write(canvas, to: url)
+    }
+
     private static func renderMenubar(model: AppModel, settings: Settings, to url: URL) {
         var rows: [(String, NSImage)] = []
         let base = MenubarOptions(settings)

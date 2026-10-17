@@ -243,7 +243,8 @@ enum MenubarRenderer {
 
     private static let partGap: CGFloat = 3
     /// Room for the bolt/plug drawn beside the percentage battery.
-    private static let batteryPercentGlyphWidth: CGFloat = 10
+    /// Width of the bolt / vertical plug drawn to the left of the battery (never on top of it).
+    private static let powerGlyphWidth: CGFloat = 7
     /// Set per segment from the context (rendering always happens on the main thread).
     private static var showLabels = true
     private static var ink = Ink(base: .black, accent: .black, value: .black)
@@ -304,9 +305,10 @@ enum MenubarRenderer {
         case .ring: return 13
         case .symbol(_, let size): return size + 3
         case .fan: return 14
-        case .battery(_, _, _, let lowPower): return lowPower ? 31 : 22
+        case .battery(_, let charging, let pluggedIn, let lowPower):
+            return ((charging || pluggedIn) ? powerGlyphWidth + 2 : 0) + 23.5 + (lowPower ? 12 : 0)
         case .batteryPercent(_, let charging, let pluggedIn, let lowPower, _):
-            return 31 + ((charging || pluggedIn) ? batteryPercentGlyphWidth : 0) + (lowPower ? 9 : 0)
+            return ((charging || pluggedIn) ? powerGlyphWidth + 2 : 0) + 30.5 + (lowPower ? 12 : 0)
         }
     }
 
@@ -388,68 +390,86 @@ enum MenubarRenderer {
             NSGraphicsContext.restoreGraphicsState()
 
         case .battery(let level, let charging, let pluggedIn, let lowPower):
-            let body = NSRect(x: rect.minX + 0.5, y: rect.midY - 5, width: 19, height: 10)
-            let outline = NSBezierPath(roundedRect: body, xRadius: 2.5, yRadius: 2.5)
-            outline.lineWidth = 1
-            ink.base.withAlphaComponent(0.55).setStroke()
-            outline.stroke()
-            ink.base.withAlphaComponent(0.55).setFill()
-            NSBezierPath(roundedRect: NSRect(x: body.maxX + 1, y: body.midY - 2, width: 1.5, height: 4), xRadius: 0.75, yRadius: 0.75).fill()
-
-            let inner = body.insetBy(dx: 2, dy: 2)
-            var fill = inner
-            fill.size.width = max(1.5, inner.width * CGFloat(min(max(level, 0), 1)))
-            ink.accent.setFill()
-            NSBezierPath(roundedRect: fill, xRadius: 1, yRadius: 1).fill()
-
-            if charging || pluggedIn {
-                // Knock the bolt/plug out of the fill, then draw it, so it stays readable at any level.
-                let name = charging ? "bolt.fill" : "powerplug.fill"
-                if let glyph = symbolImage(name, size: 8) {
-                    let glyphRect = NSRect(x: body.midX - glyph.size.width / 2, y: body.midY - glyph.size.height / 2,
-                                           width: glyph.size.width, height: glyph.size.height)
-                    glyph.draw(in: glyphRect.insetBy(dx: -1, dy: -1), from: .zero, operation: .destinationOut, fraction: 1)
-                    tinted(glyph, ink.base).draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: 1)
-                }
-            }
-            if lowPower {
-                drawSymbol("leaf.fill", size: 8, in: NSRect(x: rect.minX + 22, y: rect.minY, width: 9, height: rect.height),
-                           color: ink.base)
-            }
-
-        case .batteryPercent(let level, let charging, let pluggedIn, let lowPower, let emphasized):
-            // The bolt/plug sits to the left of the battery so the number keeps the whole body.
-            let symbol = charging ? "bolt.fill" : (pluggedIn ? "powerplug.fill" : nil)
-            var left = rect.minX
-            if let symbol {
-                drawSymbol(symbol, size: 8, in: NSRect(x: left, y: rect.minY, width: batteryPercentGlyphWidth - 1, height: rect.height),
-                           color: ink.base)
-                left += batteryPercentGlyphWidth
-            }
-            let body = NSRect(x: left + 0.5, y: rect.midY - 6.5, width: 28, height: 13)
-            let outline = NSBezierPath(roundedRect: body, xRadius: 3.5, yRadius: 3.5)
-            outline.lineWidth = 1
-            ink.base.withAlphaComponent(0.55).setStroke()
-            outline.stroke()
-            ink.base.withAlphaComponent(0.55).setFill()
-            NSBezierPath(roundedRect: NSRect(x: body.maxX + 1, y: body.midY - 2.5, width: 1.5, height: 5), xRadius: 0.75, yRadius: 0.75).fill()
-
-            // The fill is translucent so the number stays readable at every level.
+            let body = batteryBody(in: rect, charging: charging, pluggedIn: pluggedIn, width: 20, height: 10, radius: 3, ink: ink)
             let inner = body.insetBy(dx: 1.75, dy: 1.75)
             var fill = inner
             fill.size.width = max(1.5, inner.width * CGFloat(min(max(level, 0), 1)))
-            ink.accent.withAlphaComponent(0.5).setFill()
-            NSBezierPath(roundedRect: fill, xRadius: 2, yRadius: 2).fill()
-
-            let text = String(Int((level * 100).rounded()))
-            let font = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: emphasized ? .heavy : .bold)
-            drawText(text, font: font, color: ink.value, in: NSRect(x: body.minX, y: body.midY - 6.5, width: body.width, height: 13),
-                     alignment: .center)
+            ink.accent.setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 1.25, yRadius: 1.25).fill()
             if lowPower {
-                drawSymbol("leaf.fill", size: 8, in: NSRect(x: body.maxX + 3, y: rect.minY, width: 9, height: rect.height),
-                           color: ink.base)
+                drawSymbol("leaf.fill", size: 8, in: NSRect(x: body.maxX + 5, y: rect.minY, width: 9, height: rect.height), color: ink.base)
+            }
+
+        case .batteryPercent(let level, let charging, let pluggedIn, let lowPower, let emphasized):
+            let body = batteryBody(in: rect, charging: charging, pluggedIn: pluggedIn, width: 27, height: 13, radius: 4, ink: ink)
+            // iOS-style: a translucent track for the empty part, the level in solid color, and the digits cut out
+            // of the whole body, so they never split in two colors at the fill's edge.
+            let inner = body.insetBy(dx: 1.75, dy: 1.75)
+            ink.base.withAlphaComponent(0.35).setFill()
+            NSBezierPath(roundedRect: inner, xRadius: 2.25, yRadius: 2.25).fill()
+            var fill = inner
+            fill.size.width = max(2, inner.width * CGFloat(min(max(level, 0), 1)))
+            ink.accent.setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 2.25, yRadius: 2.25).fill()
+
+            let text = String(Int((level * 100).rounded())) as NSString
+            let font = roundedFont(size: 10, weight: emphasized ? .heavy : .bold)
+            let size = text.size(withAttributes: [.font: font])
+            let origin = NSPoint(x: body.midX - size.width / 2, y: body.midY - size.height / 2 + 0.25)
+            guard let context = NSGraphicsContext.current else { break }
+            context.saveGraphicsState()
+            context.compositingOperation = .destinationOut
+            text.draw(at: origin, withAttributes: [.font: font, .foregroundColor: NSColor.black])
+            context.restoreGraphicsState()
+
+            if lowPower {
+                drawSymbol("leaf.fill", size: 8, in: NSRect(x: body.maxX + 5, y: rect.minY, width: 9, height: rect.height), color: ink.base)
             }
         }
+    }
+
+    /// Draws the bolt (charging) or a vertical plug (plugged in, not charging) left of the battery, then the
+    /// battery outline and nub. Returns the body rectangle for the fill.
+    private static func batteryBody(in rect: NSRect, charging: Bool, pluggedIn: Bool, width: CGFloat, height: CGFloat,
+                                    radius: CGFloat, ink: Ink) -> NSRect {
+        var x = rect.minX
+        if charging || pluggedIn {
+            let glyph = NSRect(x: x, y: rect.minY, width: powerGlyphWidth, height: rect.height)
+            if charging {
+                drawSymbol("bolt.fill", size: 9, in: glyph, color: ink.base)
+            } else {
+                drawVerticalPlug(in: glyph, color: ink.base)
+            }
+            x += powerGlyphWidth + 2
+        }
+        let body = NSRect(x: x + 0.5, y: (rect.midY - height / 2).rounded() + 0.5, width: width, height: height)
+        let outline = NSBezierPath(roundedRect: body, xRadius: radius, yRadius: radius)
+        outline.lineWidth = 1
+        ink.base.withAlphaComponent(0.5).setStroke()
+        outline.stroke()
+        ink.base.withAlphaComponent(0.5).setFill()
+        let nubHeight = (height * 0.38).rounded()
+        NSBezierPath(roundedRect: NSRect(x: body.maxX + 1, y: body.midY - nubHeight / 2, width: 1.75, height: nubHeight),
+                     xRadius: 0.875, yRadius: 0.875).fill()
+        return body
+    }
+
+    /// A small upright plug (two prongs, body, cable), crisp at menu bar size where the SF Symbol is too wide.
+    private static func drawVerticalPlug(in rect: NSRect, color: NSColor) {
+        let width: CGFloat = 6, height: CGFloat = 12
+        let x = (rect.midX - width / 2).rounded(), y = (rect.midY - height / 2).rounded()
+        color.setFill()
+        for prong in [x + 1, x + width - 2.25] {
+            NSBezierPath(roundedRect: NSRect(x: prong, y: y + height - 3.25, width: 1.25, height: 3.25), xRadius: 0.6, yRadius: 0.6).fill()
+        }
+        NSBezierPath(roundedRect: NSRect(x: x, y: y + 3.5, width: width, height: 5.5), xRadius: 1.75, yRadius: 1.75).fill()
+        NSBezierPath(roundedRect: NSRect(x: rect.midX - 0.75, y: y, width: 1.5, height: 4.5), xRadius: 0.75, yRadius: 0.75).fill()
+    }
+
+    private static func roundedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
     // MARK: - Text and symbols
