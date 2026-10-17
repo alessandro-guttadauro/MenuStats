@@ -5,6 +5,11 @@ import SwiftUI
 enum UITestRenderer {
     static func renderAll(model: AppModel, to directory: URL) {
         let settings = model.settings
+        // Real weather for the previews (one Open-Meteo request, test only; user settings untouched).
+        model.weather.configure(enabled: true, location: WeatherLocation(name: "Roma", region: "Lazio", country: "Italia",
+                                                                          latitude: 41.8919, longitude: 12.5113))
+        let deadline = Date().addingTimeInterval(8)
+        while model.weather.report == nil, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
         renderMenubar(model: model, settings: settings, to: directory.appendingPathComponent("menubar.png"))
         renderBatteryStates(model: model, settings: settings, to: directory.appendingPathComponent("battery-states.png"))
 
@@ -89,7 +94,8 @@ enum UITestRenderer {
             var options = base
             change(&options)
             let context = MenubarRenderer.Context(snapshot: model.snapshot, options: options,
-                                                  recent: { model.recentValues($0, count: $1) }, fanAngle: 0.6)
+                                                  recent: { model.recentValues($0, count: $1) }, fanAngle: 0.6,
+                                                  weather: model.weather.report, weatherConfigured: true)
             rows.append((title, MenubarRenderer.image(for: modules, context: context).image))
         }
         add("Combinata (default)", settings.visibleModules + [.battery])
@@ -101,6 +107,10 @@ enum UITestRenderer {
         for source in SensorSource.allCases { add("Temp: \(source.label)", [.sensors]) { $0.sensorSource = source } }
         for style in FanStyle.allCases { add("Ventole: \(style.label)", [.fans]) { $0.fanStyle = style } }
         for style in BatteryStyle.allCases { add("Batteria: \(style.label)", [.battery]) { $0.batteryStyle = style } }
+        for style in DateStyle.allCases { add("Data: \(style.label)", [.date]) { $0.dateStyle = style } }
+        add("Data: Giorno e ora (12 ore)", [.date]) { $0.dateStyle = .dayTime; $0.use24Hour = false }
+        for style in WeatherStyle.allCases { add("Meteo: \(style.label)", [.weather]) { $0.weatherStyle = style } }
+        add("Combinata con meteo e data", settings.visibleModules + [.weather, .date])
         add("Icone dinamiche: CPU sotto carico", [.cpu, .sensors]) { $0.cpuBusyThreshold = 0; $0.temperatureHotThreshold = 0 }
         add("Allerta: attenzione (giallo)", [.cpu, .sensors]) { $0.severityColors = true; $0.cpuBusyThreshold = 0.25; $0.temperatureHotThreshold = 45 }
         add("Allerta: alto (arancione)", [.cpu, .sensors]) { $0.severityColors = true; $0.cpuBusyThreshold = 0.05; $0.temperatureHotThreshold = 35 }

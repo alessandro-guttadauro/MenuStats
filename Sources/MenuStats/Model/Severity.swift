@@ -90,6 +90,9 @@ enum Severity: Int, Comparable {
             if fraction >= 0.35 { return .elevated }
             return .normal
 
+        case .weather, .date:
+            return .normal
+
         case .battery:
             guard let battery = snapshot.battery else { return .normal }
             if battery.isCharging { return .positive }

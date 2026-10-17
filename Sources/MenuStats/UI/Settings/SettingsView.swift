@@ -197,7 +197,8 @@ struct MenubarSettings: View {
 
     var body: some View {
         let context = MenubarRenderer.Context(snapshot: snapshot, options: MenubarOptions(settings),
-                                              recent: { model.recentValues($0, count: $1) })
+                                              recent: { model.recentValues($0, count: $1) },
+                                              weather: model.weather.report, weatherConfigured: settings.weatherLocation != nil)
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(title: "Anteprima") {
                 MenubarPreview(image: MenubarRenderer.image(for: settings.visibleModules, context: context).image, vertical: true)
@@ -260,7 +261,8 @@ struct ModuleSettings: View {
         var options = MenubarOptions(settings)
         change(&options)
         let context = MenubarRenderer.Context(snapshot: snapshot, options: options,
-                                              recent: { model.recentValues($0, count: $1) })
+                                              recent: { model.recentValues($0, count: $1) },
+                                              weather: model.weather.report, weatherConfigured: settings.weatherLocation != nil)
         return MenubarRenderer.image(for: [module], context: context).image
     }
 
@@ -308,6 +310,8 @@ struct ModuleSettings: View {
         case .sensors: StylePicker(selection: $settings.sensorSource) { source in preview { $0.sensorSource = source } }
         case .fans: StylePicker(selection: $settings.fanStyle) { style in preview { $0.fanStyle = style } }
         case .battery: StylePicker(selection: $settings.batteryStyle) { style in preview { $0.batteryStyle = style } }
+        case .weather: StylePicker(selection: $settings.weatherStyle) { style in preview { $0.weatherStyle = style } }
+        case .date: StylePicker(selection: $settings.dateStyle) { style in preview { $0.dateStyle = style } }
         }
     }
 
@@ -335,8 +339,75 @@ struct ModuleSettings: View {
                 if !model.hardware.chargeLimitSupported { Text("Limite di carica non disponibile su questo Mac").foregroundStyle(.secondary) }
                 Button("Apri Impostazioni Batteria…") { SystemActions.openBatterySettings() }
             }
+        case .date:
+            SettingsSection(title: "Formato") {
+                Toggle("Formato 24 ore", isOn: $settings.use24Hour)
+            }
+        case .weather:
+            WeatherPlaceSettings(settings: settings, weather: model.weather)
         default:
             EmptyView()
+        }
+    }
+}
+
+/// Place search for the weather (Open-Meteo geocoding: only the typed text is sent).
+struct WeatherPlaceSettings: View {
+    @ObservedObject var settings: Settings
+    @ObservedObject var weather: WeatherService
+    @State private var query = ""
+    @State private var results: [WeatherLocation] = []
+    @State private var searching = false
+
+    var body: some View {
+        SettingsSection(title: "Città", footnote: "I dati arrivano da Open-Meteo (gratuito, senza account). MenuStats invia solo il nome cercato e poi le coordinate della città scelta; con il modulo Meteo spento non fa nessuna richiesta.") {
+            if let place = settings.weatherLocation {
+                HStack {
+                    Image(systemName: "location.fill").foregroundStyle(Palette.color(0))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(place.name).font(.system(size: 13, weight: .semibold))
+                        if !place.detail.isEmpty { Text(place.detail).font(.system(size: 11)).foregroundStyle(.secondary) }
+                    }
+                    Spacer()
+                    if let report = weather.report {
+                        Image(systemName: report.condition.symbol).symbolRenderingMode(.multicolor)
+                        Text(Format.temperature(report.temperature)).monospacedDigit()
+                    }
+                    Button("Rimuovi") { settings.weatherLocation = nil }
+                }
+            }
+            HStack {
+                TextField("Cerca una città (es. Milano)", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(search)
+                Button("Cerca", action: search).disabled(query.trimmingCharacters(in: .whitespaces).count < 2)
+                if searching { ProgressView().controlSize(.small) }
+            }
+            ForEach(results) { place in
+                Button {
+                    settings.weatherLocation = place
+                    if !settings.isEnabled(.weather) { settings.setEnabled(.weather, true) }
+                    results = []
+                    query = ""
+                } label: {
+                    HStack {
+                        Text(place.name).font(.system(size: 12.5, weight: .medium))
+                        Text(place.detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                        Spacer()
+                        Image(systemName: "plus.circle")
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func search() {
+        searching = true
+        WeatherService.search(query) { places in
+            results = places
+            searching = false
         }
     }
 }

@@ -84,7 +84,7 @@ struct DashboardContent: View {
 
     private var tabBar: some View {
         HStack(spacing: 2) {
-            ForEach(DashboardTab.allCases) { tab in
+            ForEach(visibleTabs) { tab in
                 let selected = state.tab == tab
                 let alert = severity(of: tab)
                 Button { state.tab = tab } label: {
@@ -102,6 +102,17 @@ struct DashboardContent: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    /// System tabs always; Weather and Date only while their module is enabled.
+    private var visibleTabs: [DashboardTab] { DashboardTab.allCases.filter(isEnabledTab) }
+
+    private func isEnabledTab(_ tab: DashboardTab) -> Bool {
+        switch tab {
+        case .weather: model.settings.isEnabled(.weather)
+        case .date: model.settings.isEnabled(.date)
+        default: true
         }
     }
 
@@ -123,6 +134,8 @@ struct DashboardContent: View {
         case .network: NetworkTab(model: model)
         case .sensors: SensorsTab(model: model)
         case .battery: BatteryTab(model: model)
+        case .weather: WeatherTab(weather: model.weather, openSettings: openSettings)
+        case .date: DateTab(weather: model.weather)
         }
     }
 

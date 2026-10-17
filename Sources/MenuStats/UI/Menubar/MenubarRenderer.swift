@@ -21,6 +21,9 @@ enum MenubarRenderer {
         var recent: (Metric, Int) -> [Double]
         /// Fan animation angle in radians, advanced by the status bar controller while fans spin.
         var fanAngle: CGFloat = 0
+        var weather: WeatherReport? = nil
+        var weatherConfigured = false
+        var now = Date()
     }
 
     // MARK: - Composition
@@ -63,6 +66,8 @@ enum MenubarRenderer {
         case .sensors: sensors(context)
         case .fans: fans(context)
         case .battery: battery(context)
+        case .weather: weather(context)
+        case .date: date(context)
         }
     }
 
@@ -226,6 +231,55 @@ enum MenubarRenderer {
         }
     }
 
+    private static func date(_ context: Context) -> MenubarSegment {
+        let options = context.options
+        let now = context.now
+        let time = options.use24Hour ? "HH:mm" : "h:mm"
+        let seconds = options.use24Hour ? "HH:mm:ss" : "h:mm:ss"
+        let suffix = options.use24Hour ? "" : " a"
+        func format(_ pattern: String) -> String { DateText.string(now, pattern) }
+
+        switch options.dateStyle {
+        case .dayTime:
+            let day = format("EEE d MMM")
+            return compose(.date, [.plain(day + "  " + format(time + suffix), template: day + "  " + (options.use24Hour ? "88:88" : "88:88 MM"))])
+        case .time:
+            return compose(.date, [.plain(format(time + suffix), template: options.use24Hour ? "88:88" : "88:88 MM")])
+        case .timeSeconds:
+            return compose(.date, [.plain(format(seconds + suffix), template: options.use24Hour ? "88:88:88" : "88:88:88 MM")])
+        case .stacked:
+            return compose(.date, [.labeled(format("EEE d MMM").uppercased(), format(time + suffix),
+                                            template: options.use24Hour ? "88:88" : "88:88 MM")])
+        case .shortDate:
+            return compose(.date, [.plain(format("EEE d MMM"), template: nil)])
+        case .numeric:
+            return compose(.date, [.plain(format("dd/MM/yy"), template: "88/88/88")])
+        case .long:
+            return compose(.date, [.plain(format("EEEE d MMMM"), template: nil)])
+        }
+    }
+
+    private static func weather(_ context: Context) -> MenubarSegment {
+        guard let report = context.weather else {
+            // Not configured yet (no place chosen) or still loading.
+            let hint = context.weatherConfigured ? "…" : "—"
+            return compose(.weather, [.symbol("cloud.sun", size: 12), .plain(hint, template: "88°")])
+        }
+        let symbol = Part.symbol(report.condition.menubarSymbol, size: 13)
+        let temperature = Format.temperature(report.temperature, unit: false)
+        switch context.options.weatherStyle {
+        case .iconTemperature:
+            return compose(.weather, [symbol, .plain(temperature, template: "-88°")])
+        case .temperature:
+            return compose(.weather, [.plain(temperature, template: "-88°")])
+        case .iconOnly:
+            return compose(.weather, [symbol])
+        case .stacked:
+            let city = report.location.name.count > 10 ? String(report.location.name.prefix(9)) + "…" : report.location.name
+            return compose(.weather, [symbol, .labeled(city.uppercased(), temperature, template: "-88°")])
+        }
+    }
+
     // MARK: - Parts
 
     private enum Part {
@@ -237,6 +291,10 @@ enum MenubarRenderer {
         case symbol(String, size: CGFloat)
         case fan(angle: CGFloat, dimmed: Bool)
         case battery(level: Double, charging: Bool, pluggedIn: Bool, lowPower: Bool)
+        /// Always one line, whatever the labels setting. `template` fixes the width (nil: the text itself).
+        case plain(String, template: String?)
+        /// Always label above value.
+        case labeled(String, String, template: String)
         /// A larger battery with the percentage written inside the fill.
         case batteryPercent(level: Double, charging: Bool, pluggedIn: Bool, lowPower: Bool, emphasized: Bool)
     }
@@ -305,6 +363,10 @@ enum MenubarRenderer {
         case .ring: return 13
         case .symbol(_, let size): return size + 3
         case .fan: return 14
+        case .plain(let text, let template):
+            return max(measure(text, plainFont), template.map { measure($0, plainFont) } ?? 0)
+        case .labeled(let label, let value, let template):
+            return max(measure(label, labelFont), measure(value, valueFont(true)), measure(template, valueFont(true)))
         case .battery(_, let charging, let pluggedIn, let lowPower):
             return ((charging || pluggedIn) ? powerGlyphWidth + 2 : 0) + 23.5 + (lowPower ? 12 : 0)
         case .batteryPercent(_, let charging, let pluggedIn, let lowPower, _):
@@ -314,6 +376,13 @@ enum MenubarRenderer {
 
     private static func draw(_ part: Part, in rect: NSRect, showLabels: Bool, ink: Ink) {
         switch part {
+        case .plain(let text, _):
+            drawText(text, font: plainFont, color: ink.value, in: NSRect(x: rect.minX, y: 3.5, width: rect.width, height: 15))
+
+        case .labeled(let label, let value, _):
+            drawText(label, font: labelFont, color: ink.base.withAlphaComponent(0.6), in: NSRect(x: rect.minX, y: 11.5, width: rect.width, height: 9))
+            drawText(value, font: valueFont(true), color: ink.value, in: NSRect(x: rect.minX, y: 0.5, width: rect.width, height: 12))
+
         case .text(let label, let value, _, let emphasized):
             if showLabels {
                 drawText(label, font: labelFont, color: ink.base.withAlphaComponent(0.6), in: NSRect(x: rect.minX, y: 11.5, width: rect.width, height: 9))
@@ -475,6 +544,7 @@ enum MenubarRenderer {
     // MARK: - Text and symbols
 
     private static let labelFont = NSFont.systemFont(ofSize: 7.5, weight: .bold)
+    private static let plainFont = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .medium)
     private static let stackFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
     private static let valueFontBold = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .heavy)
 
@@ -561,6 +631,9 @@ struct MenubarOptions {
     var sensorSource: SensorSource
     var fanStyle: FanStyle
     var batteryStyle: BatteryStyle
+    var dateStyle: DateStyle
+    var use24Hour: Bool
+    var weatherStyle: WeatherStyle
     var cpuBusyThreshold: Double
     var temperatureHotThreshold: Double
 
@@ -579,7 +652,24 @@ struct MenubarOptions {
         sensorSource = settings.sensorSource
         fanStyle = settings.fanStyle
         batteryStyle = settings.batteryStyle
+        dateStyle = settings.dateStyle
+        use24Hour = settings.use24Hour
+        weatherStyle = settings.weatherStyle
         cpuBusyThreshold = settings.cpuBusyThreshold
         temperatureHotThreshold = settings.temperatureHotThreshold
+    }
+}
+
+/// Italian date formatting with cached formatters (patterns are fixed, so one formatter each).
+enum DateText {
+    private static var cache: [String: DateFormatter] = [:]
+
+    static func string(_ date: Date, _ pattern: String) -> String {
+        if let formatter = cache[pattern] { return formatter.string(from: date) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "it_IT")
+        formatter.dateFormat = pattern
+        cache[pattern] = formatter
+        return formatter.string(from: date)
     }
 }

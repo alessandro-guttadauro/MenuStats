@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     let settings: Settings
     let history: HistoryStore
     let hardware = HardwareControl()
+    /// Weather from Open-Meteo; idle (no network) unless the Weather module is enabled with a place chosen.
+    let weather = WeatherService()
     private(set) lazy var slowFeed = SlowFeed(model: self)
     private var lastSlowUpdate = Date.distantPast
     private let monitor = SystemMonitor()
@@ -45,6 +47,11 @@ final class AppModel: ObservableObject {
         // The menu bar's visible modules decide which sources are read every sample.
         Publishers.CombineLatest(settings.$enabledModules, settings.$moduleOrder)
             .sink { [weak self] enabled, order in self?.monitor.demand.menubar = Set(order.filter(enabled.contains)) }
+            .store(in: &cancellables)
+        Publishers.CombineLatest(settings.$enabledModules, settings.$weatherLocation)
+            .sink { [weak self] enabled, location in
+                self?.weather.configure(enabled: enabled.contains(.weather), location: location)
+            }
             .store(in: &cancellables)
         settings.$hiddenSections
             .sink { [weak self] hidden in self?.monitor.demand.hidden = hidden }

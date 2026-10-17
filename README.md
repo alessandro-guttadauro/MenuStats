@@ -36,6 +36,13 @@ M3 Pro con macOS 27. Per compilare: Xcode 26 o successivo (icona Liquid Glass co
 - **Sezioni della tendina a scelta**: per ogni scheda puoi nascondere grafici, elenchi di processi, volumi,
   sensori e altro (Impostazioni ▸ modulo ▸ Sezioni nella tendina, oppure clic destro su una sezione).
   Una sezione nascosta non viene nemmeno misurata.
+- **Data e ora** (facoltativa, spenta di default): 7 disposizioni in barra (giorno e ora, solo ora, con secondi,
+  data sopra l'ora, data breve, numerica, estesa), 12/24 ore; nella tendina calendario del mese, numero della
+  settimana, alba e tramonto.
+- **Meteo** (facoltativo, spento di default): icona e temperatura in barra (4 stili); nella tendina condizioni
+  attuali, prossime 24 ore e 7 giorni con barre min/max. Dati da [Open-Meteo](https://open-meteo.com) (gratuito,
+  senza account): la città si sceglie nelle Impostazioni e viene inviata solo la sua posizione; con il modulo
+  spento non c'è nessuna richiesta di rete.
 - **Notifiche**: CPU alta, temperatura alta, batteria scarica o carica, ventole al massimo.
 - **Storico** SQLite di 8 giorni, **apertura al login**, °C/°F, intervallo di aggiornamento.
 - **Controllo ventole** (Auto / Personalizzato con slider per ventola) nella scheda Sensori e in

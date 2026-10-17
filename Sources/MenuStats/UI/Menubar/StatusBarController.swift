@@ -42,7 +42,28 @@ final class StatusBarController: NSObject {
             self?.rebuild()
         }.store(in: &cancellables)
 
+        // A new weather report re-renders the bar (every 15 minutes at most).
+        model.weather.$report.receive(on: RunLoop.main).sink { [weak self] _ in
+            DispatchQueue.main.async { self?.render() }
+        }.store(in: &cancellables)
+
         rebuild()
+    }
+
+    /// One-second clock, only while the date module shows seconds (otherwise the 2 s sample is enough).
+    private var clockTimer: Timer?
+
+    private func updateClock() {
+        let needsSeconds = settings.isEnabled(.date) && settings.dateStyle == .timeSeconds
+        if needsSeconds, clockTimer == nil {
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.render() }
+            timer.tolerance = 0.05
+            RunLoop.main.add(timer, forMode: .common)
+            clockTimer = timer
+        } else if !needsSeconds, let timer = clockTimer {
+            timer.invalidate()
+            clockTimer = nil
+        }
     }
 
     private var structure: [[ModuleID]] {
@@ -67,6 +88,7 @@ final class StatusBarController: NSObject {
         }
         render()
         updateAnimation()
+        updateClock()
     }
 
     private func render() {
@@ -74,7 +96,9 @@ final class StatusBarController: NSObject {
             snapshot: model.snapshot,
             options: MenubarOptions(settings),
             recent: { [weak model] metric, count in model?.recentValues(metric, count: count) ?? [] },
-            fanAngle: fanAngle
+            fanAngle: fanAngle,
+            weather: model.weather.report,
+            weatherConfigured: settings.weatherLocation != nil
         )
         for index in entries.indices {
             guard let button = entries[index].item.button else { continue }

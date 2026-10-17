@@ -3,7 +3,7 @@ import Combine
 import Foundation
 
 enum ModuleID: String, CaseIterable, Identifiable, Codable {
-    case cpu, memory, disk, network, sensors, fans, battery
+    case cpu, memory, disk, network, sensors, fans, battery, weather, date
     var id: String { rawValue }
 
     /// Modules this Mac has hardware for: no Fans on a fanless MacBook Air, no Battery on a desktop.
@@ -26,6 +26,8 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
         case .sensors: "Temperature"
         case .fans: "Ventole"
         case .battery: "Batteria"
+        case .weather: "Meteo"
+        case .date: "Data e ora"
         }
     }
 
@@ -38,6 +40,8 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
         case .sensors: "thermometer.medium"
         case .fans: "fan"
         case .battery: "battery.75percent"
+        case .weather: "cloud.sun"
+        case .date: "calendar"
         }
     }
 
@@ -50,12 +54,14 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
         case .network: .network
         case .sensors, .fans: .sensors
         case .battery: .battery
+        case .weather: .weather
+        case .date: .date
         }
     }
 }
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case cpu, memory, disk, network, sensors, battery
+    case cpu, memory, disk, network, sensors, battery, weather, date
     var id: String { rawValue }
 
     var title: String {
@@ -66,6 +72,8 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .network: "Rete"
         case .sensors: "Sensori"
         case .battery: "Batteria"
+        case .weather: "Meteo"
+        case .date: "Data"
         }
     }
 
@@ -77,8 +85,13 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .network: "network"
         case .sensors: "thermometer.medium"
         case .battery: "battery.75percent"
+        case .weather: "cloud.sun"
+        case .date: "calendar"
         }
     }
+
+    /// Optional tabs only appear while their module is enabled.
+    var isOptional: Bool { self == .weather || self == .date }
 }
 
 /// Optional sections of the dropdown. A hidden section is also not measured (no process list, no nettop,
@@ -150,6 +163,8 @@ enum PanelSection: String, CaseIterable, Identifiable, Codable {
         case .network: .network
         case .sensors: self == .sensorsFans ? .fans : .sensors
         case .battery: .battery
+        case .weather: .weather
+        case .date: .date
         }
     }
 }
@@ -199,6 +214,30 @@ enum BatteryStyle: String, StyleOption {
     var label: String { ["Percentuale", "Tempo rimanente", "Potenza (W)", "Solo icona", "Percentuale nell'icona"][Self.allCases.firstIndex(of: self)!] }
 }
 
+enum DateStyle: String, StyleOption {
+    case dayTime, time, timeSeconds, stacked, shortDate, numeric, long
+    var label: String {
+        ["Giorno e ora", "Solo ora", "Ora con secondi", "Data sopra l'ora", "Data breve", "Data numerica", "Data estesa"][Self.allCases.firstIndex(of: self)!]
+    }
+}
+
+enum WeatherStyle: String, StyleOption {
+    case iconTemperature, temperature, iconOnly, stacked
+    var label: String { ["Icona e temperatura", "Solo temperatura", "Solo icona", "Città sopra la temperatura"][Self.allCases.firstIndex(of: self)!] }
+}
+
+/// The place the weather is shown for (chosen in Settings; only its coordinates are sent to Open-Meteo).
+struct WeatherLocation: Codable, Equatable, Identifiable {
+    var name: String
+    var region: String?
+    var country: String?
+    var latitude: Double
+    var longitude: Double
+
+    var id: String { "\(latitude),\(longitude)" }
+    var detail: String { [region, country].compactMap { $0 }.joined(separator: ", ") }
+}
+
 enum MenubarLayout: String, StyleOption {
     case combined, separate
     var label: String { ["Una voce unica (compatta)", "Una voce per modulo"][Self.allCases.firstIndex(of: self)!] }
@@ -245,6 +284,18 @@ final class Settings: ObservableObject {
     @Published var sensorSource: SensorSource { didSet { save(sensorSource.rawValue, "sensorSource") } }
     @Published var fanStyle: FanStyle { didSet { save(fanStyle.rawValue, "fanStyle") } }
     @Published var batteryStyle: BatteryStyle { didSet { save(batteryStyle.rawValue, "batteryStyle") } }
+    @Published var dateStyle: DateStyle { didSet { save(dateStyle.rawValue, "dateStyle") } }
+    @Published var use24Hour: Bool { didSet { save(use24Hour, "use24Hour") } }
+    @Published var weatherStyle: WeatherStyle { didSet { save(weatherStyle.rawValue, "weatherStyle") } }
+    @Published var weatherLocation: WeatherLocation? {
+        didSet {
+            if let weatherLocation, let data = try? JSONEncoder().encode(weatherLocation) {
+                save(data, "weatherLocation")
+            } else {
+                defaults.removeObject(forKey: "weatherLocation")
+            }
+        }
+    }
 
     // Dynamic icon thresholds
     @Published var cpuBusyThreshold: Double { didSet { save(cpuBusyThreshold, "cpuBusyThreshold") } }
@@ -296,6 +347,10 @@ final class Settings: ObservableObject {
         sensorSource = string("sensorSource", SensorSource.cpuAverage)
         fanStyle = string("fanStyle", FanStyle.rpm)
         batteryStyle = string("batteryStyle", BatteryStyle.percent)
+        dateStyle = string("dateStyle", DateStyle.dayTime)
+        use24Hour = bool("use24Hour", true)
+        weatherStyle = string("weatherStyle", WeatherStyle.iconTemperature)
+        weatherLocation = defaults.data(forKey: "weatherLocation").flatMap { try? JSONDecoder().decode(WeatherLocation.self, from: $0) }
 
         cpuBusyThreshold = double("cpuBusyThreshold", 0.8)
         temperatureHotThreshold = double("temperatureHotThreshold", 80)
@@ -316,7 +371,7 @@ final class Settings: ObservableObject {
     /// Default icon colors (validated palette steps), used when "Colora le icone" is on.
     static let defaultColors: [ModuleID: String] = [
         .cpu: "#2A78D6", .memory: "#1BAF7A", .disk: "#EDA100", .network: "#6250D6",
-        .sensors: "#EB6834", .fans: "#E87BA4", .battery: "#008300",
+        .sensors: "#EB6834", .fans: "#E87BA4", .battery: "#008300", .weather: "#2A78D6", .date: "#6250D6",
     ]
 
     func color(for module: ModuleID) -> NSColor {
