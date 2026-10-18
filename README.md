@@ -168,26 +168,28 @@ Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo
 
 ```mermaid
 flowchart LR
-    subgraph Sorgenti["Sorgenti (senza root)"]
-        K["Kernel<br/>host_*, sysctl, proc_*"]
-        IO["IOKit · IOPowerSources"]
-        SMC["SMC<br/>temperature, ventole, potenza"]
-        HID["Sensori HID"]
+    subgraph SRC [Sorgenti senza root]
+        K[Kernel: host, sysctl, proc]
+        IO[IOKit e IOPowerSources]
+        SMC[SMC: temperature, ventole, potenza]
+        HID[Sensori HID]
     end
-    SM["SystemMonitor<br/>campionamento su richiesta"]
-    AM["AppModel<br/>storico SQLite · avvisi"]
-    SB["Barra dei menu<br/>rasterizzata"]
-    DP["Tendina SwiftUI<br/>+ Swift Charts"]
-    ST["Impostazioni"]
-    H["MenuStatsHelper<br/>root · XPC"]
-    W["Open-Meteo · ipwho.is<br/>solo se attivi"]
+    SM[SystemMonitor: campionamento su richiesta]
+    AM[AppModel: storico SQLite e avvisi]
+    SB[Barra dei menu rasterizzata]
+    DP[Tendina SwiftUI e Swift Charts]
+    ST[Impostazioni]
+    H[MenuStatsHelper: root via XPC]
+    W[Open-Meteo e ipwho.is, solo se attivi]
 
-    Sorgenti --> SM --> AM
+    SRC --> SM
+    SM --> AM
     AM --> SB
     AM --> DP
     W -.-> AM
-    ST -. "cosa è visibile" .-> SM
-    DP -- "velocità ventole" --> H -- scrittura --> SMC
+    ST -.->|cosa è visibile| SM
+    DP -->|velocità ventole| H
+    H -->|scrittura| SMC
 ```
 
 | Area | Dove |
