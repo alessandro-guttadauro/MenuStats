@@ -23,6 +23,9 @@ final class ProcessReader {
         var bytesWritten: UInt64
     }
 
+    /// Screenshot runs (`--render-ui`) hide themselves: rendering is CPU-heavy and isn't what the app costs.
+    static var hideOwnProcess = false
+
     private var previous: [pid_t: Counters] = [:]
     private var previousTime: Double?
     private var identities: [pid_t: (name: String, path: String)] = [:]
@@ -39,7 +42,8 @@ final class ProcessReader {
 
         var current: [pid_t: Counters] = [:]
         var result: [ProcessUsage] = []
-        for pid in allPIDs() where pid > 0 {
+        let ownPID = getpid()
+        for pid in allPIDs() where pid > 0 && !(Self.hideOwnProcess && pid == ownPID) {
             guard let usage = rusage(of: pid) else { continue }
             // rusage CPU times are in Mach absolute time units (not nanoseconds on Apple Silicon).
             let counters = Counters(

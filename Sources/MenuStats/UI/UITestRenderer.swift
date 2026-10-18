@@ -5,6 +5,7 @@ import SwiftUI
 enum UITestRenderer {
     static func renderAll(model: AppModel, to directory: URL) {
         let settings = model.settings
+        ProcessReader.hideOwnProcess = true
         // Real weather for the previews (one Open-Meteo request, test only; user settings untouched).
         model.weather.configure(enabled: true, location: WeatherLocation(name: "Roma", region: "Lazio", country: "Italia",
                                                                           latitude: 41.8919, longitude: 12.5113))
@@ -12,6 +13,10 @@ enum UITestRenderer {
         while model.weather.report == nil, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
         renderMenubar(model: model, settings: settings, to: directory.appendingPathComponent("menubar.png"))
         renderBatteryStates(model: model, settings: settings, to: directory.appendingPathComponent("battery-states.png"))
+        for dark in [true, false] {
+            renderMenubarHero(model: model, settings: settings, dark: dark,
+                              to: directory.appendingPathComponent(dark ? "hero-menubar-dark.png" : "hero-menubar-light.png"))
+        }
 
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             for tab in DashboardTab.allCases {
@@ -24,6 +29,7 @@ enum UITestRenderer {
                 let view = DashboardView(model: model, state: state, maxContentHeight: 2000, openSettings: {}, quit: {})
                     .background(VisualEffectBackground())
                 save(view, appearance: appearance, to: directory.appendingPathComponent("panel-\(tab.rawValue)-\(name).png"))
+                model.setNetworkProcessSampling(false) // offscreen views never disappear, so stop nettop here
             }
         }
         let pages: [(String, AnyView)] = [
@@ -41,6 +47,35 @@ enum UITestRenderer {
     }
 
     /// Every module in every style, on a light and a dark menu bar strip.
+    /// README hero: the full menu bar (every module, default styles) at 3x on a wallpaper-like gradient.
+    private static func renderMenubarHero(model: AppModel, settings: Settings, dark: Bool, to url: URL) {
+        var options = MenubarOptions(settings)
+        options.showLabels = true
+        options.dateStyle = .dayTime
+        // A render only collects a few samples, so the CPU mini graph gets a representative history.
+        let history: [Double] = [0.18, 0.22, 0.35, 0.28, 0.41, 0.33, 0.26, 0.52, 0.47, 0.30, 0.24, 0.38, 0.45, 0.29, 0.36]
+        let context = MenubarRenderer.Context(snapshot: model.snapshot, options: options,
+                                              recent: { metric, count in metric == .cpu ? Array(history.suffix(count)) : model.recentValues(metric, count: count) },
+                                              fanAngle: 0.5, weather: model.weather.report, weatherConfigured: true)
+        let modules: [ModuleID] = [.cpu, .memory, .disk, .network, .sensors, .fans, .battery, .weather, .date]
+        let bar = MenubarRenderer.image(for: modules, context: context).image
+        let scale: CGFloat = 3
+        let barSize = NSSize(width: bar.size.width * scale, height: bar.size.height * scale)
+        let size = NSSize(width: barSize.width + 120, height: barSize.height + 60)
+        let canvas = NSImage(size: size, flipped: false) { rect in
+            let colors = dark ? [NSColor(srgbRed: 0.10, green: 0.11, blue: 0.24, alpha: 1), NSColor(srgbRed: 0.29, green: 0.16, blue: 0.40, alpha: 1)]
+                              : [NSColor(srgbRed: 0.80, green: 0.87, blue: 0.98, alpha: 1), NSColor(srgbRed: 0.96, green: 0.86, blue: 0.93, alpha: 1)]
+            NSGradient(colors: colors)?.draw(in: NSBezierPath(roundedRect: rect, xRadius: 28, yRadius: 28), angle: 0)
+            let strip = NSRect(x: 30, y: 20, width: size.width - 60, height: barSize.height + 20)
+            (dark ? NSColor(white: 0, alpha: 0.35) : NSColor(white: 1, alpha: 0.55)).setFill()
+            NSBezierPath(roundedRect: strip, xRadius: 18, yRadius: 18).fill()
+            let flat = MenubarRenderer.rasterize(bar, dark: dark, scale: scale)
+            flat.draw(in: NSRect(x: (size.width - barSize.width) / 2, y: 30, width: barSize.width, height: barSize.height))
+            return true
+        }
+        write(canvas, to: url)
+    }
+
     /// Every battery style in every power state (simulated), at 4x, on light and dark strips.
     private static func renderBatteryStates(model: AppModel, settings: Settings, to url: URL) {
         let states: [(String, BatteryStats, Bool)] = [

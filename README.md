@@ -1,144 +1,245 @@
-<p align="center"><img src="docs/icon.png" width="160" alt="Icona di MenuStats"></p>
+<div align="center">
+
+<img src="docs/icon.png" width="140" alt="Icona di MenuStats">
 
 # MenuStats
 
-Monitor di sistema per la barra dei menu di macOS, ispirato a iStat Menus. È un'implementazione
-indipendente: non contiene codice o asset di Bjango e non è affiliato a Bjango.
+**Il tuo Mac, a colpo d'occhio.**<br>
+Monitor di sistema per la barra dei menu di macOS: CPU, memoria, disco, rete, temperature, ventole, batteria,
+meteo e data. Compatto, preciso e leggero.
 
-## Installazione
+[![Ultima versione](https://img.shields.io/github/v/release/thomas-addamo/MenuStats?label=versione&color=2A78D6)](https://github.com/thomas-addamo/MenuStats/releases/latest)
+[![Download](https://img.shields.io/github/downloads/thomas-addamo/MenuStats/total?label=download&color=1BAF7A)](https://github.com/thomas-addamo/MenuStats/releases)
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white)
+![Apple Silicon](https://img.shields.io/badge/Apple-Silicon-6250D6)
+![Swift](https://img.shields.io/badge/Swift-5.10-F05138?logo=swift&logoColor=white)
 
-1. Scarica lo zip `MenuStats-<versione>.zip` dall'ultima [release](https://github.com/thomas-addamo/MenuStats/releases/latest)
-   e sposta `MenuStats.app` in `~/Applications` o `/Applications`.
-2. L'app ha una firma ad hoc e non è notarizzata: al primo avvio fai clic destro ▸ **Apri**, oppure
-   `xattr -dr com.apple.quarantine /Applications/MenuStats.app`.
-3. Per il controllo delle ventole: Impostazioni ▸ Ventole ▸ Installa helper, poi consenti MenuStats in
-   Impostazioni di Sistema ▸ Generali ▸ Elementi login.
+### [⬇︎ Scarica MenuStats](https://github.com/thomas-addamo/MenuStats/releases/latest)
 
-Requisiti: macOS 13 o successivo; temperature e controllo ventole su Apple Silicon. Testato su MacBook Pro
-M3 Pro con macOS 27. Per compilare: Xcode 26 o successivo (icona Liquid Glass con `actool`).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hero-menubar-dark.png">
+  <img src="docs/screenshots/hero-menubar-light.png" alt="La barra dei menu di MenuStats" width="100%">
+</picture>
 
-## Funzioni
+</div>
 
-- **Barra dei menu compatta**: tutti i moduli in una voce unica (o una voce per modulo), con etichette
-  piccole sopra i valori. Moduli: CPU, Memoria, Disco, Rete, Temperature, Ventole, Batteria.
-- **Stili per modulo** (come in iStat Menus), con anteprima nelle Impostazioni: grafico/percentuale/barre per
-  core, anello/percentuale/usata/pressione, lettura-scrittura/spazio libero, upload-download/totale,
-  sensore da mostrare, giri ventole, percentuale/tempo/watt della batteria.
-- **Icone dinamiche**: ventola che gira con le ventole attive, fiamma con CPU sotto carico, termometro che
-  sale (e con il sole se macOS rallenta per il calore), frecce di rete/disco accese solo con traffico,
-  batteria con fulmine/spina/foglia (basso consumo), avviso con pressione di memoria alta.
-- **Colori**: allerte automatiche giallo → arancione → rosso quando serve attenzione (verde in carica);
-  facoltativamente un colore a scelta per ogni modulo.
-- **Tendina a schede** (CPU, Memoria, Disco, Rete, Sensori, Batteria) con grafici Live / 1 h / 24 h / 7 g,
-  mirino al passaggio del mouse, barre per core (efficienza/prestazioni), composizione della memoria,
-  volumi (usato / eliminabile / libero), app che usano più CPU, memoria, disco e rete (raggruppate per app),
-  ventole e consumo, griglia dei sensori, salute della batteria e modalità basso consumo.
-- **Sezioni della tendina a scelta**: per ogni scheda puoi nascondere grafici, elenchi di processi, volumi,
-  sensori e altro (Impostazioni ▸ modulo ▸ Sezioni nella tendina, oppure clic destro su una sezione).
+<br>
+
+<p align="center"><img src="docs/screenshots/showcase.png" alt="Le schede CPU, Meteo e Batteria della tendina" width="100%"></p>
+
+## ✨ In breve
+
+- **Tutto in una voce sola**: i moduli scelti stanno in un'unica voce compatta, con etichette piccole sopra i
+  valori. Si può avere anche una voce per modulo.
+- **Una tendina per ogni modulo**: grafici Live, 1 h, 24 h e 7 giorni, processi raggruppati per app, sensori,
+  ventole, salute della batteria, volumi e traffico per app.
+- **Icone che reagiscono**: la ventola gira quando le ventole girano, compare una fiamma con la CPU sotto carico,
+  il termometro sale e i colori passano da giallo ad arancione a rosso quando serve attenzione.
+- **Valori verificati**: `--verify` confronta 18 valori con gli strumenti di macOS. La temperatura CPU è la
+  stessa che mostra iStat Menus.
+- **Leggero davvero**: circa l'1% di un core a riposo. Legge spesso solo ciò che stai guardando.
+- **Tuo**: stile per ogni modulo, colori, ordine, sezioni della tendina da mostrare o nascondere.
+
+## 📥 Installazione
+
+1. Scarica `MenuStats-<versione>.zip` dall'[ultima release](https://github.com/thomas-addamo/MenuStats/releases/latest)
+   e sposta **MenuStats.app** in `Applicazioni`.
+2. L'app non è notarizzata: al primo avvio **clic destro ▸ Apri**. In alternativa:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/MenuStats.app
+   ```
+3. Facoltativo, per controllare le ventole: Impostazioni ▸ **Ventole** ▸ *Installa helper*, poi consenti MenuStats
+   in Impostazioni di Sistema ▸ Generali ▸ **Elementi login**.
+
+> **Requisiti**: Mac con Apple Silicon e macOS 13 o successivo. Sviluppato e verificato su MacBook Pro M3 Pro con
+> macOS 27; i sensori dell'M4 Pro sono stati confrontati con iStat Menus.
+
+## 🧩 Moduli
+
+| | In barra | Nella tendina |
+|---|---|---|
+| **CPU** | grafico + percentuale, barre per core | utilizzo utente/sistema, core efficienza e prestazioni, carico, processi |
+| **Memoria** | anello, percentuale, usata, pressione | composizione (app, wired, compressa, cache), swap, processi |
+| **Disco** | lettura/scrittura, spazio libero | volumi (usato / eliminabile / libero), attività, processi |
+| **Rete** | upload/download, totale | traffico, connessione, **IP pubblico e VPN** con bandiera, app che usano la rete |
+| **Temperature** | CPU (media dei core), massima, SSD, batteria | ogni core della CPU e della GPU, SoC, SSD, stato termico |
+| **Ventole** | giri, percentuale, solo icona animata | velocità, controllo **Automatico / Personalizzato**, consumo del sistema |
+| **Batteria** | percentuale, nell'icona, tempo, watt | carica, salute ufficiale Apple, cicli, potenza, **limite di carica**, basso consumo |
+| **Meteo** · *facoltativo* | icona + temperatura | condizioni attuali, prossime 24 ore, 7 giorni con barre min/max |
+| **Data e ora** · *facoltativo* | 7 disposizioni, 12/24 ore | calendario del mese, settimana, alba e tramonto |
+
+Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
+Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
+
+## 🎨 Personalizzazione
+
+<table>
+<tr>
+<td width="58%"><img src="docs/screenshots/settings-cpu.png" alt="Impostazioni del modulo CPU"></td>
+<td>
+
+- **Stile per modulo**, con anteprima dal vivo in chiaro e scuro.
+- **Ordine e moduli**: trascina per riordinare, attiva solo quelli che ti servono.
+- **Colori di allerta** automatici, oppure un colore a scelta per ogni modulo.
+- **Icone dinamiche** attivabili o disattivabili.
+- **Sezioni della tendina** da nascondere, dalle Impostazioni o con clic destro.
   Una sezione nascosta non viene nemmeno misurata.
-- **Data e ora** (facoltativa, spenta di default): 7 disposizioni in barra (giorno e ora, solo ora, con secondi,
-  data sopra l'ora, data breve, numerica, estesa), 12/24 ore; nella tendina calendario del mese, numero della
-  settimana, alba e tramonto.
-- **Meteo** (facoltativo, spento di default): icona e temperatura in barra (4 stili); nella tendina condizioni
-  attuali, prossime 24 ore e 7 giorni con barre min/max. Dati da [Open-Meteo](https://open-meteo.com) (gratuito,
-  senza account): la città si sceglie nelle Impostazioni e viene inviata solo la sua posizione; con il modulo
-  spento non c'è nessuna richiesta di rete.
-- **Notifiche**: CPU alta, temperatura alta, batteria scarica o carica, ventole al massimo.
-- **Storico** SQLite di 8 giorni, **apertura al login**, °C/°F, intervallo di aggiornamento.
-- **Controllo ventole** (Auto / Personalizzato con slider per ventola) nella scheda Sensori e in
-  Impostazioni ▸ Ventole, tramite un helper con privilegi di root.
-- **Limite di carica** 80 / 90 / 100% nella scheda Batteria e in Impostazioni ▸ Batteria.
+- **Notifiche** per CPU, temperatura, batteria e ventole.
+- Intervallo di aggiornamento, °C/°F, apertura al login.
 
-## Uso
+</td>
+</tr>
+</table>
 
-```bash
-./scripts/install.sh                 # compila, installa in ~/Applications e avvia
-swift run MenuStats --verify         # confronta i valori con gli strumenti di macOS (✓/✗)
-swift run MenuStats --dump           # stampa una lettura di tutto
-swift run MenuStats --benchmark      # costo di ogni lettore e del disegno della barra
-swift run MenuStats --render-ui /tmp/ui   # PNG di barra, tendine e impostazioni (chiaro/scuro)
-build/MenuStats.app/Contents/MacOS/MenuStats --self-test /tmp/live   # apre ogni tendina dell'app reale e la cattura
-~/Applications/MenuStats.app/Contents/MacOS/MenuStats --install-helper     # registra l'helper (o dalle Impostazioni)
-~/Applications/MenuStats.app/Contents/MacOS/MenuStats --uninstall-helper
-~/Applications/MenuStats.app/Contents/MacOS/MenuStats --fan-test 0 3000    # prova ventola 0 rileggendo le chiavi SMC
+## 🖼️ Galleria
+
+<p align="center"><img src="docs/screenshots/gallery.png" alt="Le schede Sensori, Rete e Data" width="100%"></p>
+
+<details>
+<summary><b>Tutti gli stili della batteria</b></summary>
+<br>
+<p align="center"><img src="docs/screenshots/battery-states.png" alt="Stili della batteria in ogni stato" width="60%"></p>
+</details>
+
+## ⚡ Efficienza
+
+MenuStats legge spesso **solo ciò che è sullo schermo**:
+
+- **Barra**: CPU, memoria, rete, disco e batteria a ogni aggiornamento, pochi microsecondi l'uno. Temperature e
+  ventole dall'SMC solo se i loro moduli sono in barra, altrimenti ogni 10 secondi.
+- **Tendina**: processi, volumi, tutti i sensori, GPU e traffico per app solo mentre la loro sezione è visibile.
+- **Disegno**: la barra è rasterizzata e aggiornata solo quando i pixel cambiano. Il timer ha una tolleranza
+  per raggruppare i risvegli e si ferma a schermi spenti.
+
+| A riposo (MacBook Pro M3 Pro) | Prima dell'ottimizzazione | Ora |
+|---|---|---|
+| CPU | 2,3% di un core | **≈ 1%** |
+| Ciclo di campionamento | 7,1 ms | **2,5 ms** ogni 2 s |
+| Lettura sensori HID | 49 ms sul thread principale | **in background**, solo quelli necessari |
+
+## ✅ Attendibilità
+
+`swift run MenuStats --verify` confronta 18 valori con `top`, `sysctl`, `diskutil`, `route`, `ipconfig`, `pmset` e
+Informazioni di Sistema, e stampa ✓ o ✗ per ognuno.
+
+- **Temperatura CPU**: media dei sensori SMC dei singoli core, lo stesso calcolo di iStat Menus.
+- **Disco**: "libero" è lo spazio realmente libero, come in `df` e diskutil. Lo spazio che macOS può liberare da
+  solo è mostrato a parte come "eliminabile".
+- **Batteria**: la capacità massima è quella di Apple, non una stima.
+- **Attivo da**: tempo dall'avvio, stop incluso, come `uptime`.
+
+## 🔒 Privacy
+
+MenuStats non ha account, non raccoglie statistiche d'uso e non manda dati a nessuno, con queste sole
+eccezioni, tutte **spente di default**:
+
+| Funzione | Cosa esce dal Mac | Quando |
+|---|---|---|
+| Meteo | il nome cercato, poi le coordinate della città → [Open-Meteo](https://open-meteo.com) | modulo attivo, ogni 15 minuti |
+| Meteo automatico | posizione arrotondata a circa 1 km (con il permesso di macOS) | solo in modalità automatica |
+| IP pubblico | una richiesta a ipwho.is (e api4.ipify.org per l'IPv4) | opzione attiva e scheda Rete aperta, al massimo ogni 5 minuti |
+
+Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
+8 giorni in `~/Library/Application Support/MenuStats`.
+
+## 🌀 Ventole e limite di carica
+
+- **Ventole**: un piccolo helper con privilegi (`MenuStatsHelper`, registrato con `SMAppService`) imposta la
+  velocità tra il minimo e il massimo di fabbrica. Accetta solo questa copia di MenuStats e rimette le ventole in
+  automatico se l'app si chiude o va in crash, prima dello stop e con stress termico.
+- **Limite di carica**: usa il limite nativo di macOS (80–100%), applicato dal sistema anche in stop e dopo il
+  riavvio. Non serve l'helper.
+
+<details>
+<summary><b>Dettagli tecnici</b></summary>
+
+- Chiavi SMC scrivibili su Apple Silicon: `Ftst`, `F{n}Md`, `F{n}Tg`. `F{n}Mn` e `F{n}Mx` fanno da limiti.
+- Scrittura tramite `MSSMCWrite` (`Sources/CIOKitPrivate/shim.c`), che rifiuta dimensioni diverse da quella della chiave.
+- Comunicazione via XPC (`local.menustats.helper`, protocollo in `Sources/MenuStatsShared`), con requisito di firma
+  sul client: cdhash con firma ad hoc, Team ID con Developer ID.
+- Su macOS 27 le chiavi SMC di carica (`CH0B`, `CHTE`) non sono più accessibili: il limite passa dal framework di
+  sistema PowerUI (`Sources/CIOKitPrivate/chargelimit.m`). Verifica con `pmset -g battlimit`.
+- Per distribuire su altri Mac senza riapprovare l'helper a ogni versione servono Developer ID e notarizzazione:
+  `SIGN_IDENTITY="Developer ID Application: …" ./scripts/build-app.sh`.
+
+</details>
+
+## 🏗️ Architettura
+
+```mermaid
+flowchart LR
+    subgraph Sorgenti["Sorgenti (senza root)"]
+        K["Kernel<br/>host_*, sysctl, proc_*"]
+        IO["IOKit · IOPowerSources"]
+        SMC["SMC<br/>temperature, ventole, potenza"]
+        HID["Sensori HID"]
+    end
+    SM["SystemMonitor<br/>campionamento su richiesta"]
+    AM["AppModel<br/>storico SQLite · avvisi"]
+    SB["Barra dei menu<br/>rasterizzata"]
+    DP["Tendina SwiftUI<br/>+ Swift Charts"]
+    ST["Impostazioni"]
+    H["MenuStatsHelper<br/>root · XPC"]
+    W["Open-Meteo · ipwho.is<br/>solo se attivi"]
+
+    Sorgenti --> SM --> AM
+    AM --> SB
+    AM --> DP
+    W -.-> AM
+    ST -. "cosa è visibile" .-> SM
+    DP -- "velocità ventole" --> H -- scrittura --> SMC
 ```
 
-Clic su un modulo: tendina sulla scheda giusta. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
-
-## Efficienza
-
-MenuStats legge spesso solo ciò che è sullo schermo in quel momento:
-- **Barra**: CPU, memoria, rete, disco e batteria a ogni aggiornamento (pochi microsecondi l'uno). Temperature
-  e ventole dall'SMC a ogni aggiornamento solo se i rispettivi moduli sono in barra, altrimenti ogni 10 s.
-- **Tendina**: processi, volumi, sensori completi, GPU e traffico per app (`nettop`) solo mentre la loro
-  sezione è visibile.
-- I sensori HID (~1 ms l'uno) si leggono in background: solo SSD e batteria ogni 10 s, tutti con la scheda
-  Sensori aperta. Le chiavi SMC memorizzano tipo e dimensione; i limiti delle ventole si leggono una volta.
-- Spazio disco con `statfs` (lo spazio eliminabile, lento da calcolare, solo nella scheda Disco); dettagli
-  della batteria ogni 30 s; contatori della sola interfaccia di rete principale.
-- La barra è rasterizzata e aggiornata solo se i pixel cambiano; il timer ha una tolleranza del 10% e si
-  ferma quando gli schermi sono spenti.
-
-A riposo (MacBook Pro M3 Pro): circa 1% di CPU di un core, ciclo di campionamento ~2,5 ms ogni 2 s.
-Misura con `swift run -c release MenuStats --benchmark`.
-
-## Attendibilità
-
-`--verify` confronta 18 valori con `top`, `sysctl`, `diskutil`, `route`, `ipconfig`, `pmset` e Informazioni
-di Sistema. Note:
-- **Disco**: "libero" è lo spazio realmente libero (come `df`/diskutil); lo spazio che macOS può liberare da
-  solo (cache, istantanee locali) è indicato a parte come "eliminabile".
-- **Capacità massima della batteria**: è il valore di Apple (Informazioni di Sistema), non una stima.
-- **Attivo da**: tempo dall'avvio, sonno incluso (come `uptime`).
-- Temperature, ventole e potenza non sono verificabili senza root (`powermetrics`).
-
-## Fonti dati (nessun privilegio di root)
-
-| Modulo | API |
+| Area | Dove |
 |---|---|
-| CPU | `host_processor_info`, `getloadavg`, `hw.perflevel*` |
-| Memoria | `host_statistics64(HOST_VM_INFO64)`, `vm.swapusage`, `kern.memorystatus_vm_pressure_level` |
-| Disco | `IOBlockStorageDriver` → `Statistics`; capacità da `URLResourceValues` |
-| Rete | `sysctl NET_RT_IFLIST2`, SystemConfiguration; per app: `nettop` (solo con la scheda Rete aperta) |
-| Temperature | CPU e GPU: chiavi SMC per core (media dei core, come iStat Menus; tabella per chip in `SMCReader.swift`, verificata su M3 Pro). Altri sensori: `IOHIDEventSystemClient` (API privata), in background ogni 5 s |
-| Ventole, potenza | SMC in sola lettura (`F*Ac`, `F*Mn`, `F*Mx`, `PSTR`, `PDTR`) |
-| Batteria | IOPowerSources, `AppleSmartBattery`, `system_profiler SPPowerDataType` (salute) |
-| Processi | `proc_listallpids`, `proc_pid_rusage`, `proc_pidpath` |
+| Lettori dei dati | `Sources/MenuStats/Readers` |
+| Campionamento su richiesta | `Sources/MenuStats/SystemMonitor.swift` |
+| Barra dei menu | `Sources/MenuStats/UI/Menubar` |
+| Tendina | `Sources/MenuStats/UI/Panel` |
+| Impostazioni | `Sources/MenuStats/UI/Settings` |
+| Helper ventole | `Sources/MenuStatsHelper`, `Sources/MenuStatsShared` |
+| SMC, HID, limite di carica (C/Objective-C) | `Sources/CIOKitPrivate` |
 
-## Controllo ventole e limite di carica
+## 🛠️ Compilare e strumenti
 
-**Ventole: helper con privilegi.** `MenuStatsHelper` è un LaunchDaemon dentro il bundle
-(`Contents/MacOS/MenuStatsHelper`, plist in `Contents/Library/LaunchDaemons/local.menustats.helper.plist`),
-registrato con `SMAppService.daemon` (macOS 13+) da Impostazioni ▸ Ventole ▸ Installa helper. Dopo la
-registrazione bisogna consentirlo in Impostazioni di Sistema ▸ Generali ▸ Elementi login. L'app gli parla via
-XPC (`local.menustats.helper`, protocollo in `Sources/MenuStatsShared`).
+Serve Xcode 26 o successivo, che compila anche l'icona Liquid Glass con `actool`.
 
-- Su Apple Silicon (M3 Pro, macOS 27) le chiavi scrivibili sono `Ftst`, `F{n}Md` e `F{n}Tg`. La modalità
-  personalizzata scrive `Ftst=1`, `F{n}Md=1` e `F{n}Tg` = giri. Quella automatica scrive `F{n}Md=0` e, quando
-  nessuna ventola è più manuale, `Ftst=0`. `F{n}Mn` e `F{n}Mx` sono di sola lettura e fanno da limiti.
-- La scrittura passa per `MSSMCWrite` (`Sources/CIOKitPrivate/shim.c`, comando `kSMCWriteKey = 6`), che
-  rifiuta dimensioni diverse da quella della chiave.
-- **Sicurezza** (tutto applicato dall'helper):
-  - accetta solo questa copia di MenuStats: requisito di firma sulla connessione (cdhash dell'app con firma
-    ad hoc, Team ID con Developer ID);
-  - valida indice della ventola e velocità e rifiuta valori fuori da `F{n}Mn`…`F{n}Mx`;
-  - rimette le ventole in automatico quando l'app si chiude o va in crash (connessione XPC chiusa), prima
-    dello stop, su SIGTERM, all'avvio dell'helper e quando macOS segnala stress termico (una velocità fissa
-    non sale da sola sotto carico).
-- **Firma**: con la firma ad hoc l'helper si registra e funziona dopo l'approvazione in Elementi login; il
-  Developer ID non serve per l'uso locale. Per distribuire l'app ad altri Mac servono Developer ID e
-  notarizzazione: `SIGN_IDENTITY="Developer ID Application: …" ./scripts/build-app.sh`.
+```bash
+git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
+./scripts/install.sh                       # compila, installa in ~/Applications e avvia
+```
 
-**Limite di carica: limite nativo di macOS.** Su macOS 27 le chiavi SMC usate dagli altri strumenti
-(`CH0B`/`CH0C`, `CHTE`) non esistono più, e le nuove sono protette da un entitlement privato anche per root.
-MenuStats usa quindi lo stesso limite di Impostazioni di Sistema ▸ Batteria (framework privato PowerUI,
-`Sources/CIOKitPrivate/chargelimit.m`). Non richiede root né l'helper, accetta 80–100% e lo applica il
-sistema anche in stop e dopo il riavvio. Verifica: `pmset -g battlimit`.
+| Comando | A cosa serve |
+|---|---|
+| `swift run MenuStats --verify` | confronta i valori con gli strumenti di macOS |
+| `swift run MenuStats --dump` | stampa una lettura di tutto |
+| `swift run -c release MenuStats --benchmark` | costo di ogni lettore e del disegno |
+| `swift run MenuStats --render-ui <cartella>` | PNG di barra, tendine e impostazioni, in chiaro e scuro |
+| `MenuStats.app/Contents/MacOS/MenuStats --self-test <cartella>` | apre ogni tendina dell'app reale e la cattura |
+| `MenuStats.app/Contents/MacOS/MenuStats --fan-test 0 3000` | prova la ventola 0 rileggendo le chiavi SMC |
 
-## Limiti noti
+## 🤝 Contribuire
 
-- Senza root si vedono solo i processi del proprio utente.
-- La modalità personalizzata fissa la velocità: il firmware non la alza da solo. Per questo l'helper torna in
-  automatico sotto stress termico.
-- Il limite di carica scende al massimo all'80% (limite di macOS).
-- In modalità "una voce per modulo" la distanza tra le voci la decide macOS; la voce unica è più compatta.
+Le pull request sono benvenute. Prima di aprirne una: `swift build` senza avvisi, `--verify` a 18/18 e, per le
+modifiche visive, uno sguardo a `--render-ui`. Grazie a chi ha già contribuito:
+
+<a href="https://github.com/thomas-addamo/MenuStats/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=thomas-addamo/MenuStats" alt="Contributori">
+</a>
+
+- [@dany80213](https://github.com/dany80213): sensori M4 Pro, meteo con posizione automatica, IP pubblico e VPN
+- [@alessandro-guttadauro](https://github.com/alessandro-guttadauro): Mac senza ventole, pulsante Esci
+
+## 📌 Limiti noti
+
+- Senza privilegi di amministratore si vedono solo i processi del proprio utente.
+- La velocità personalizzata delle ventole è fissa: il firmware non la alza sotto carico, per questo l'helper torna
+  in automatico con stress termico.
+- Il limite di carica parte dall'80%, come in macOS.
+- Con "una voce per modulo" la distanza tra le voci la decide macOS: la voce unica è più compatta.
+
+---
+
+<sub>MenuStats è un progetto indipendente ispirato a iStat Menus: non contiene codice o risorse di Bjango e non è
+affiliato a Bjango. Usa API private di macOS (SMC, sensori HID, PowerUI) che potrebbero cambiare con gli
+aggiornamenti di sistema.</sub>
