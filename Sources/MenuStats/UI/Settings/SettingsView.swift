@@ -47,7 +47,7 @@ struct SettingsView: View {
                     row(.menubar)
                 }
                 Section("Moduli") {
-                    ForEach(ModuleID.available) { row(.module($0)) }
+                    ForEach(ModuleID.allCases.filter { $0.isAvailable || $0 == .fans }) { row(.module($0)) }
                 }
                 Section {
                     row(.notifications)
@@ -55,6 +55,13 @@ struct SettingsView: View {
                 }
             }
             .navigationSplitViewColumnWidth(190)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button(role: .destructive) { NSApp.terminate(nil) } label: {
+                    Label("Esci da MenuStats", systemImage: "power").frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .padding(10)
+            }
         } detail: {
             ScrollView {
                 detail
@@ -236,6 +243,11 @@ struct MenubarSettings: View {
                             Toggle(isOn: Binding(get: { settings.isEnabled(module) }, set: { settings.setEnabled(module, $0) })) {
                                 Label(module.name, systemImage: module.symbol).frame(width: 130, alignment: .leading)
                             }
+                            .disabled(!module.isAvailable)
+                            if !module.isAvailable {
+                                Text(module == .fans ? "Questo Mac non ha ventole" : "Non disponibile su questo Mac")
+                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
                             Spacer()
                             MenubarPreview(image: MenubarRenderer.image(for: [module], context: context).image)
                                 .opacity(settings.isEnabled(module) ? 1 : 0.4)
@@ -267,6 +279,24 @@ struct ModuleSettings: View {
     }
 
     var body: some View {
+        if module == .fans && !HardwarePresence.hasFans {
+            noFans
+        } else {
+            moduleBody
+        }
+    }
+
+    /// Fanless Macs (MacBook Air): nothing to configure, so say why instead of showing dead controls.
+    private var noFans: some View {
+        SettingsSection(title: "Ventole non disponibili",
+                        footnote: "Il controllo delle ventole, l'helper con privilegi e gli avvisi sulla velocità sono disattivati perché non c'è nulla da controllare. Le temperature restano disponibili nel modulo Temperature.") {
+            Label("Questo Mac non ha ventole", systemImage: "fan.slash").font(.system(size: 13, weight: .medium))
+            Text("MenuStats ha rilevato che questo modello (per esempio un MacBook Air) è raffreddato in modo passivo, senza ventole.")
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var moduleBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(title: "Barra dei menu") {
                 Toggle("Mostra \(module.name) nella barra dei menu",
@@ -523,6 +553,8 @@ struct NotificationSettings: View {
                 alert("Batteria carica al", isOn: $settings.alertBatteryCharged, value: $settings.alertBatteryChargedThreshold,
                       range: 0.5...1, step: 0.05, format: Format.percent, detail: "con l'alimentatore")
                 Toggle("Ventole oltre il 70% della velocità massima", isOn: $settings.alertFans)
+                    .disabled(!HardwarePresence.hasFans)
+                    .help(HardwarePresence.hasFans ? "" : "Questo Mac non ha ventole")
             }
         }
     }
