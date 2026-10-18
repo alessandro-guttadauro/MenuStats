@@ -167,7 +167,7 @@ Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo
 ## 🏗️ Architettura
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph SRC [Sorgenti senza root]
         K[Kernel: host, sysctl, proc]
         IO[IOKit e IOPowerSources]
