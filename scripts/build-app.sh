@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 swift build -c release --product MenuStats
 swift build -c release --product MenuStatsHelper
 APP=build/MenuStats.app
+# Version: VERSION=… or the latest git tag (v1.2.3 → 1.2.3), so local installs show the real version.
+VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 # Optional: SIGN_IDENTITY="Developer ID Application: …" ./scripts/build-app.sh (default: ad hoc).
