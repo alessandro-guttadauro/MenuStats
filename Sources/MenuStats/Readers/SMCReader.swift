@@ -169,15 +169,26 @@ final class SMCReader {
 
 /// What this Mac physically has, so the app can hide modules for missing hardware (fanless MacBook Air, desktops).
 enum HardwarePresence {
-    /// Fan count from the SMC (`FNum`); fanless Macs report 0. True when it can't be read, so nothing is hidden by mistake.
+    /// Fan count from the SMC (`FNum`); fanless Macs report 0 or, like the MacBook Air, don't expose the key at all.
+    /// When `FNum` can't be read, the first fan's limits (`F0Mx`) decide; the model name is the last resort.
     static let hasFans: Bool = {
         let connection = MSSMCOpen()
-        guard connection != 0 else { return true }
+        guard connection != 0 else { return !isMacBookAir }
         defer { MSSMCClose(connection) }
         var value = MSSMCValue()
-        guard MSSMCRead(connection, "FNum", &value) == 0, value.dataSize > 0 else { return true }
-        return value.bytes.0 > 0
+        if MSSMCRead(connection, "FNum", &value) == 0, value.dataSize > 0 { return value.bytes.0 > 0 }
+        var limit = MSSMCValue()
+        if MSSMCRead(connection, "F0Mx", &limit) == 0, limit.dataSize > 0 { return true }
+        return false
     }()
+
+    private static var isMacBookAir: Bool {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        defer { if service != 0 { IOObjectRelease(service) } }
+        guard service != 0, let data = IORegistryEntryCreateCFProperty(service, "product-name" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? Data else { return false }
+        return String(decoding: data, as: UTF8.self).contains("MacBook Air")
+    }
 
     static let hasBattery: Bool = {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
