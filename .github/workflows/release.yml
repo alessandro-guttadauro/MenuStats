@@ -1,6 +1,7 @@
-# Every push to main (direct commits and merged pull requests) publishes a new release, which the app's
-# updater then offers to users. The version bumps the patch number; write [minor] or [major] in a commit
-# message to bump those instead, or [skip release] to publish nothing.
+# Every push to main (direct commits and merged pull requests) that changes the app publishes a new release,
+# which the app's updater then offers to users. Documentation-only pushes ship with the next release (the zip
+# would be identical). The version bumps the patch number; write [minor] or [major] in a commit message to
+# bump those instead, or [skip release] to publish nothing.
 name: Release
 
 on:
@@ -33,6 +34,9 @@ jobs:
           RANGE="$LAST..HEAD"; [ "$LAST" = v0.0.0 ] && RANGE=HEAD
           MESSAGES=$(git log --format=%B "$RANGE")
           if echo "$MESSAGES" | grep -qF '[skip release]'; then echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$(git log --format=%H "$RANGE" -- Sources Resources scripts Package.swift .github)" ]; then
+            echo "Only documentation changed since $LAST"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           IFS=. read -r MAJOR MINOR PATCH <<< "${LAST#v}"
           if echo "$MESSAGES" | grep -qF '[major]'; then MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
           elif echo "$MESSAGES" | grep -qF '[minor]'; then MINOR=$((MINOR + 1)); PATCH=0
@@ -43,8 +47,12 @@ jobs:
             echo "## Novità"
             git log --no-merges --format='- %s' "$RANGE" | sed -E 's/ ?\[(minor|major)\]//g'
             echo
-            echo "**Installazione:** scarica \`MenuStats-$VERSION.zip\`, estrai e sposta MenuStats in Applicazioni."
-            echo "Se hai già MenuStats 1.3.0 o successivo, l'aggiornamento compare da solo nella barra dei menu."
+            echo
+            echo "## Installazione"
+            echo "Se hai già MenuStats 1.3.0 o successivo, l'aggiornamento compare da solo nella barra dei menu: un clic e si installa."
+            echo "Altrimenti scarica \`MenuStats-$VERSION.zip\`, estrai e sostituisci \`MenuStats.app\`; al primo avvio clic destro ▸ **Apri** (app non notarizzata)."
+            echo
+            echo "Requisiti: Mac con Apple Silicon, macOS 13 o successivo (macOS 14 per i widget)."
           } > notes.md
           cat notes.md
 
@@ -65,5 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          printf '\nSHA-256 di `MenuStats-%s.zip`: `%s`\n' "$VERSION" "$(shasum -a 256 "MenuStats-$VERSION.zip" | cut -d' ' -f1)" >> notes.md
+          # GitHub appends the merged pull requests with their authors.
           gh release create "v$VERSION" "MenuStats-$VERSION.zip" \
-            --target "$GITHUB_SHA" --title "MenuStats $VERSION" --notes-file notes.md
+            --target "$GITHUB_SHA" --title "MenuStats $VERSION" --notes-file notes.md --generate-notes
