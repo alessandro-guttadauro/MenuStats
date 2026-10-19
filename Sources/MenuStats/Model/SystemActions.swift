@@ -13,6 +13,30 @@ enum SystemActions {
         }
     }
 
+    /// Locks the screen at once, like Control-Command-Q, without Accessibility permission. Uses the login framework's
+    /// `SACLockScreenImmediate`; if a future macOS removes it, falls back to putting the display to sleep (which
+    /// locks when "Require password" is set to immediately in System Settings).
+    static func lockScreen() {
+        typealias LockFunction = @convention(c) () -> Int32
+        if let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY),
+           let symbol = dlsym(handle, "SACLockScreenImmediate") {
+            _ = unsafeBitCast(symbol, to: LockFunction.self)()
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["displaysleepnow"]
+        try? process.run()
+    }
+
+    /// Whether the screen is unlocked, on and in front: the only time an automatic lock makes sense.
+    static func screenIsUsable() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        let locked = (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
+        let onConsole = (session["kCGSSessionOnConsoleKey"] as? Bool) ?? true
+        return !locked && onConsole && CGDisplayIsAsleep(CGMainDisplayID()) == 0
+    }
+
     static func openLocationSettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")
     }

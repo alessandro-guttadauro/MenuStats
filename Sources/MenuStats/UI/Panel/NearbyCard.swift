@@ -5,6 +5,7 @@ import SwiftUI
 /// circle only to keep them apart. Other people's devices are never shown.
 struct NearbyCard: View {
     @ObservedObject var monitor: NearbyDevicesMonitor
+    @ObservedObject private var settings = Settings.shared
 
     /// Heard right now, or connected (a connected accessory is obviously close even when macOS gives no signal for it).
     private var nearby: [NearbyDevice] { monitor.devices.filter { $0.inRange || $0.connected } }
@@ -21,7 +22,7 @@ struct NearbyCard: View {
                 Text("Nessun dispositivo Bluetooth associato a questo Mac.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             } else {
-                if nearby.contains(where: \.inRange) { NearbyRadar(devices: nearby.filter(\.inRange)).frame(height: 190) }
+                if settings.nearbyShowRadar, nearby.contains(where: \.inRange) { NearbyRadar(devices: nearby.filter(\.inRange)).frame(height: 190) }
                 ForEach(nearby) { device in
                     HStack(spacing: 8) {
                         Image(systemName: device.symbol).frame(width: 18).foregroundStyle(.secondary)

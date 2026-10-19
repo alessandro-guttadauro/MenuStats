@@ -82,7 +82,15 @@ meteo, data e un modulo per tenere il Mac sveglio. Compatto, preciso e leggero.
 La scheda **Mappa** mostra dove si trova il Mac e, sotto, **i tuoi dispositivi vicini**: accessori Bluetooth associati
 (AirPods, tastiere, mouse, controller) e gli iPhone, iPad e Apple Watch che macOS riconosce, su un radar con la distanza stimata
 dal segnale. Sono solo i dispositivi che macOS già conosce (la stessa lista di Impostazioni di Sistema ▸ Bluetooth):
-MenuStats non cerca né mostra dispositivi di altre persone. Il Bluetooth dà la distanza, non la direzione.
+MenuStats non cerca né mostra dispositivi di altre persone. Il Bluetooth dà la distanza, non la direzione. Il radar si
+può nascondere da Impostazioni ▸ Mappa; l'elenco con le distanze resta.
+
+**Blocca il Mac se mi allontano** (Impostazioni ▸ Mappa, spento di default): scegli uno o più dei tuoi dispositivi, per
+esempio iPhone o Apple Watch, e un tempo di attesa (da 15 secondi a 5 minuti). Quando non li sente più per quel tempo, il
+Mac si blocca, come con Control-Comando-Q, senza permessi in più. Funziona sempre, anche a scheda chiusa, con una lettura
+ogni 10-60 secondi a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto; dopo il blocco non scatta di
+nuovo finché un dispositivo scelto non torna vicino, così sbloccare a mano non crea un ciclo di blocchi. Con più
+dispositivi scegli se blocca quando se ne allontana uno qualsiasi o tutti.
 
 Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
 Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
@@ -194,8 +202,9 @@ eccezioni, tutte **spente di default**:
 | Aggiornamenti | una richiesta all'API delle release di GitHub | ogni 6 ore (disattivabile), e il download solo quando lo chiedi |
 | IP pubblico | una richiesta a ipwho.is (e api4.ipify.org per l'IPv4) | opzione attiva e scheda Rete aperta, al massimo ogni 5 minuti |
 
-I dispositivi vicini della scheda Mappa si leggono sul Mac con `system_profiler`, solo a scheda aperta, senza
-scansionare il Bluetooth e senza permessi aggiuntivi; nulla viene salvato o inviato. Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
+I dispositivi vicini della scheda Mappa si leggono sul Mac con `system_profiler`, senza scansionare il Bluetooth e senza
+permessi aggiuntivi: a scheda aperta, oppure in background solo se accendi il blocco per distanza. Nulla viene salvato o
+inviato. Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
 dimensioni del file che scegli di seguire. Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
 8 giorni in `~/Library/Application Support/MenuStats`.
 
@@ -406,6 +415,10 @@ Grazie a chi ha già contribuito:
 - I dispositivi vicini hanno la distanza ma non la direzione, e la stima può sbagliare di diversi metri (muri, corpo e
   tasche cambiano il segnale). iPhone, iPad e Apple Watch compaiono solo quando macOS ne misura il segnale e li riconosce. Le
   posizioni su mappa di Dov'è (iPhone, AirTag, amici) restano inaccessibili ad altre app.
+- Il blocco per distanza è una comodità, non una sicurezza: il segnale Bluetooth può restare anche a distanza o sparire
+  per un attimo, e cuffie e AirPods spariscono dal segnale quando li metti nella custodia (meglio iPhone o Apple Watch).
+  Per bloccare usa `SACLockScreenImmediate` del framework di sistema `login` (API non documentata, come le altre
+  usate dal progetto); se un macOS futuro la rimuove, ripiega sullo spegnimento dello schermo.
 - Sveglio non tiene acceso il Mac a coperchio chiuso. Con "finché l'IA lavora", uno strumento interrotto senza
   avviso (Esc) libera il Mac solo allo scadere del tempo di tolleranza. "Finché un'app è aperta" segue le app con
   finestra, non i processi di sistema.
