@@ -220,7 +220,8 @@ struct MenubarSettings: View {
     var body: some View {
         let context = MenubarRenderer.Context(snapshot: snapshot, options: MenubarOptions(settings),
                                               recent: { model.recentValues($0, count: $1) },
-                                              weather: model.weather.report, weatherConfigured: settings.weatherLocation != nil)
+                                              weather: model.weather.report, weatherConfigured: settings.weatherLocation != nil,
+                                              awake: model.awake.state)
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(title: "Anteprima") {
                 MenubarPreview(image: MenubarRenderer.image(for: settings.visibleModules, context: context).image, vertical: true)
@@ -289,7 +290,8 @@ struct ModuleSettings: View {
         change(&options)
         let context = MenubarRenderer.Context(snapshot: snapshot, options: options,
                                               recent: { model.recentValues($0, count: $1) },
-                                              weather: model.weather.report, weatherConfigured: settings.weatherLocation != nil)
+                                              weather: model.weather.report, weatherConfigured: settings.weatherLocation != nil,
+                                              awake: module == .awake ? .sample : model.awake.state)
         return MenubarRenderer.image(for: [module], context: context).image
     }
 
@@ -357,6 +359,7 @@ struct ModuleSettings: View {
         case .battery: StylePicker(selection: $settings.batteryStyle) { style in preview { $0.batteryStyle = style } }
         case .weather: StylePicker(selection: $settings.weatherStyle) { style in preview { $0.weatherStyle = style } }
         case .date: StylePicker(selection: $settings.dateStyle) { style in preview { $0.dateStyle = style } }
+        case .awake: StylePicker(selection: $settings.awakeStyle) { style in preview { $0.awakeStyle = style } }
         }
     }
 
@@ -399,6 +402,19 @@ struct ModuleSettings: View {
             }
         case .weather:
             WeatherPlaceSettings(settings: settings, weather: model.weather, location: model.location)
+        case .awake:
+            AwakeAISettings(model: model, settings: settings)
+            SettingsSection(title: "Sessione",
+                            footnote: "Come il comando caffeinate, MenuStats chiede a macOS di non andare in stop per inattività, senza password e senza helper. Una sessione si avvia dalla scheda Sveglio e finisce da sola allo scadere del tempo. Chiudere il coperchio mette comunque il Mac in stop.") {
+                Toggle("Lascia spegnere lo schermo", isOn: Binding(get: { settings.awakeAllowDisplaySleep },
+                                                                   set: { model.awake.setAllowDisplaySleep($0) }))
+                if HardwarePresence.hasBattery {
+                    Toggle("Termina la sessione con batteria scarica", isOn: $settings.awakeEndOnLowBattery)
+                    ThresholdSlider(title: "Batteria sotto", value: $settings.awakeLowBatteryThreshold, range: 0.05...0.5, step: 0.05,
+                                    format: Format.percent)
+                        .disabled(!settings.awakeEndOnLowBattery)
+                }
+            }
         default:
             EmptyView()
         }
@@ -654,5 +670,46 @@ struct HelperSettings: View {
             if let error = hardware.fanError { Text(error).font(.system(size: 11)).foregroundStyle(.red) }
         }
         .onAppear { hardware.refreshHelperState() }
+    }
+}
+
+/// "Stay awake while an AI works": the switch, its options and the hooks that make AI tools report their activity.
+struct AwakeAISettings: View {
+    var model: AppModel
+    @ObservedObject var settings: Settings
+    @State private var copied: String?
+
+    var body: some View {
+        SettingsSection(title: "Finché l'IA lavora",
+                        footnote: "Ogni strumento IA segnala che sta lavorando creando un file in ~/.menustats/ai e lo cancella quando ha finito. MenuStats tiene sveglio il Mac finché c'è almeno un file recente, poi lascia andare. Un segnale non rinnovato per il tempo scelto qui sotto viene ignorato (per esempio dopo uno stop con Esc, che non avvisa la fine).") {
+            Toggle("Resta sveglio mentre un'IA lavora", isOn: Binding(get: { settings.awakeWatchAI }, set: { model.awake.setWatchAI($0) }))
+            Toggle("Lascia spegnere lo schermo in questo caso", isOn: $settings.awakeAIAllowDisplaySleep)
+            HStack {
+                Text("Ignora i segnali fermi da")
+                Picker("", selection: $settings.awakeAIStaleMinutes) {
+                    ForEach([5, 10, 30, 60, 120], id: \.self) { Text("\($0) min").tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            HStack(spacing: 8) {
+                Button("Copia hook per Claude Code") { copy(AwakeController.claudeCodeHooksJSON(), "hook") }
+                Button("Copia comandi generici") {
+                    copy("# inizio (e ogni volta che lavora ancora)\n\(AwakeController.aiStartCommand(name: "nome-strumento"))\n# fine\n\(AwakeController.aiStopCommand(name: "nome-strumento"))\n", "comandi")
+                }
+                Button("Apri la cartella") {
+                    try? FileManager.default.createDirectory(at: AwakeController.aiDirectory, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(AwakeController.aiDirectory)
+                }
+            }
+            if let copied { Label("Copiati: \(copied)", systemImage: "checkmark.circle").font(.system(size: 11)).foregroundStyle(.secondary) }
+            Text("Claude Code: incolla la sezione \"hooks\" in ~/.claude/settings.json. Altri strumenti: eseguono i comandi generici all'inizio e alla fine del lavoro.")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func copy(_ text: String, _ what: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copied = what
     }
 }

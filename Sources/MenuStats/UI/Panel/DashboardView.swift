@@ -112,6 +112,7 @@ struct DashboardContent: View {
         switch tab {
         case .weather: model.settings.isEnabled(.weather)
         case .date: model.settings.isEnabled(.date)
+        case .awake: model.settings.isEnabled(.awake)
         default: true
         }
     }
@@ -136,6 +137,7 @@ struct DashboardContent: View {
         case .battery: BatteryTab(model: model)
         case .weather: WeatherTab(weather: model.weather, openSettings: openSettings)
         case .date: DateTab(weather: model.weather)
+        case .awake: AwakeTab(model: model)
         }
     }
 

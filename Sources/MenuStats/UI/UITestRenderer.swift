@@ -87,7 +87,7 @@ enum UITestRenderer {
         let context = MenubarRenderer.Context(snapshot: model.snapshot, options: options,
                                               recent: { metric, count in metric == .cpu ? Array(history.suffix(count)) : model.recentValues(metric, count: count) },
                                               fanAngle: 0.5, weather: model.weather.report, weatherConfigured: true)
-        let modules: [ModuleID] = [.cpu, .memory, .disk, .network, .sensors, .fans, .battery, .weather, .date]
+        let modules: [ModuleID] = [.cpu, .memory, .disk, .network, .sensors, .fans, .battery, .weather, .date, .awake]
         let bar = MenubarRenderer.image(for: modules, context: context).image
         let scale: CGFloat = 3
         let barSize = NSSize(width: bar.size.width * scale, height: bar.size.height * scale)
@@ -176,6 +176,18 @@ enum UITestRenderer {
         for style in DateStyle.allCases { add("Data: \(style.label)", [.date]) { $0.dateStyle = style } }
         add("Data: Giorno e ora (12 ore)", [.date]) { $0.dateStyle = .dayTime; $0.use24Hour = false }
         for style in WeatherStyle.allCases { add("Meteo: \(style.label)", [.weather]) { $0.weatherStyle = style } }
+        for style in AwakeStyle.allCases { add("Sveglio: \(style.label)", [.awake]) { $0.awakeStyle = style } }
+        // The cup's steam at six points of its cycle, plus the idle (outline) cup.
+        for phase in stride(from: 0.0, to: 1.0, by: 1.0 / 6) {
+            let context = MenubarRenderer.Context(snapshot: model.snapshot, options: base, recent: { model.recentValues($0, count: $1) },
+                                                  steamPhase: CGFloat(phase), awake: .sample)
+            rows.append((String(format: "Sveglio: vapore fase %.2f", phase), MenubarRenderer.image(for: [.awake], context: context).image))
+        }
+        add("Sveglio: spento", [.awake])
+        let withSteam = MenubarRenderer.Context(snapshot: model.snapshot, options: base, recent: { model.recentValues($0, count: $1) },
+                                                fanAngle: 0.6, steamPhase: 0.3, weather: model.weather.report,
+                                                weatherConfigured: true, awake: .sample)
+        rows.append(("Sveglio accanto alle altre icone", MenubarRenderer.image(for: [.fans, .battery, .awake, .weather], context: withSteam).image))
         add("Combinata con meteo e data", settings.visibleModules + [.weather, .date])
         add("Icone dinamiche: CPU sotto carico", [.cpu, .sensors]) { $0.cpuBusyThreshold = 0; $0.temperatureHotThreshold = 0 }
         add("Allerta: attenzione (giallo)", [.cpu, .sensors]) { $0.severityColors = true; $0.cpuBusyThreshold = 0.25; $0.temperatureHotThreshold = 45 }
