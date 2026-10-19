@@ -134,9 +134,18 @@ final class StatusBarController: NSObject {
     }
 
     /// True when macOS isn't showing the item: behind the notch, pushed off screen or into the overflow.
-    private func isHidden(_ item: NSStatusItem) -> Bool {
-        guard let window = item.button?.window else { return false }
-        guard window.isVisible, window.occlusionState.contains(.visible) else { return true }
+    /// Why an item looks hidden. Only `noRoom` is certain to be a lack of space: an item that is merely occluded may be
+    /// under another app's window (a full-screen app keeps a transparent one over the menu bar), not out of room.
+    private enum Visibility { case visible, noRoom, occluded }
+
+    private func visibility(of item: NSStatusItem) -> Visibility {
+        guard let window = item.button?.window else { return .visible }
+        if !window.isVisible || isOutOfRoom(window) { return .noRoom }
+        return window.occlusionState.contains(.visible) ? .visible : .occluded
+    }
+
+    /// Ordered out, off screen or behind the notch: macOS had no room for it.
+    private func isOutOfRoom(_ window: NSWindow) -> Bool {
         let frame = window.frame
         guard let screen = window.screen ?? NSScreen.screens.first(where: { $0.frame.intersects(frame) }) else { return true }
         if frame.maxX <= screen.frame.minX || frame.minX >= screen.frame.maxX { return true }
@@ -146,7 +155,7 @@ final class StatusBarController: NSObject {
     }
 
     /// The app owning a window that covers a status item, if any. Another app's window at menu bar level (a full-width
-    /// overlay, a banner, the lock screen) makes macOS report the
+    /// overlay, the transparent strip a full-screen app keeps over the menu bar, the lock screen) makes macOS report the
     /// item as occluded although there is plenty of room: that is not a reason to shrink the bar. The system's own windows (the ones that host the status items) do not count.
     private func coveringOwner(of window: NSWindow) -> String? {
         guard let primary = NSScreen.screens.first else { return nil }
@@ -155,13 +164,14 @@ final class StatusBarController: NSObject {
                            width: window.frame.width, height: window.frame.height)
         let ignored: Set<String> = ["Window Server", "Control Center", "SystemUIServer", "Dock"]
         let ownPID = ProcessInfo.processInfo.processIdentifier
+        // Only the front app's windows count: an app that keeps a window over the bar (Claude does, transparent)
+        // occludes the status items while it is active, not when another app is in front.
+        guard let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier, frontPID != ownPID else { return nil }
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
         for info in windows {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer >= 25,
-                  (info[kCGWindowOwnerPID as String] as? Int32) != ownPID,
+                  (info[kCGWindowOwnerPID as String] as? Int32) == frontPID,
                   let owner = info[kCGWindowOwnerName as String] as? String, !ignored.contains(owner),
-                  // Fully transparent windows are everywhere (Claude keeps one over the bar all the time): they cover nothing.
-                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
                   let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDictionary) else { continue }
             let overlap = bounds.intersection(frame)
@@ -179,10 +189,17 @@ final class StatusBarController: NSObject {
 
     private func checkFit() {
         guard settings.autoFitMenubar, !entries.isEmpty else { return }
-        var hidden = entries.contains { isHidden($0.item) }
-        // Looks hidden only because another app's window sits on top of the bar: not a lack of room.
-        let cover = hidden ? entries.compactMap { $0.item.button?.window }.compactMap(coveringOwner(of:)).first : nil
-        if cover != nil { hidden = false }
+        let states = entries.map { visibility(of: $0.item) }
+        // Occluded only because the front app's window sits on top of the bar says nothing about room: keep the bar as
+        // it is until that changes (an occlusion change triggers a new check). Behind the notch or off screen is a
+        // lack of room, whatever covers it.
+        let occluded = states.contains(.occluded)
+        let cover = occluded ? entries.compactMap { $0.item.button?.window }.compactMap(coveringOwner(of:)).first : nil
+        if let cover, !states.contains(.noRoom) {
+            debug("coperto da \(cover) (app in primo piano): nessuna decisione, livello \(fitLevel)")
+            return
+        }
+        let hidden = states.contains(.noRoom) || occluded
         let verdict = confirmation.observe(hidden: hidden, signature: layoutSignature, at: Date())
         if ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil {
             let details = entries.map { entry -> String in
