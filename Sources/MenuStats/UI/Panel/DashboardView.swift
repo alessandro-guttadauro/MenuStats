@@ -54,14 +54,16 @@ struct DashboardContent: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
-            Picker("", selection: $rangeRaw) {
-                ForEach(HistoryRange.allCases) { Text($0.label).tag($0.rawValue) }
+            if state.tab != .widgets { // widgets draw their own recent graphs
+                Picker("", selection: $rangeRaw) {
+                    ForEach(HistoryRange.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
 
             ScrollView(.vertical, showsIndicators: contentHeight > maxContentHeight) {
                 content
@@ -112,6 +114,7 @@ struct DashboardContent: View {
         switch tab {
         case .weather: model.settings.isEnabled(.weather)
         case .date: model.settings.isEnabled(.date)
+        case .widgets: model.settings.showWidgetTab
         default: true
         }
     }
@@ -136,6 +139,7 @@ struct DashboardContent: View {
         case .battery: BatteryTab(model: model)
         case .weather: WeatherTab(weather: model.weather, openSettings: openSettings)
         case .date: DateTab(weather: model.weather)
+        case .widgets: WidgetsTab(model: model, openSettings: openSettings)
         }
     }
 

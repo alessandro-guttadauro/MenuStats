@@ -32,6 +32,10 @@ final class AppModel: ObservableObject {
     /// Public IP and VPN for the Network tab; idle unless that tab is open.
     let publicNetwork = PublicNetworkService()
     private(set) lazy var slowFeed = SlowFeed(model: self)
+    /// New releases from GitHub, installed in place.
+    let updater = Updater()
+    /// Feeds the desktop widgets (idle while none is installed).
+    private(set) lazy var widgets = WidgetBridge(model: self)
     private var lastSlowUpdate = Date.distantPast
     private let monitor = SystemMonitor()
     private let networkProcessReader = NetworkProcessReader()
@@ -119,6 +123,7 @@ final class AppModel: ObservableObject {
             lastSlowUpdate = snapshot.date
             slowFeed.snapshot = snapshot
         }
+        widgets.tick(now: snapshot.date)
     }
 
     func livePoints(_ metric: Metric) -> [LivePoint] { live[metric] ?? [] }

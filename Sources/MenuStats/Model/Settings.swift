@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import MenuStatsWidgetUI
 
 enum ModuleID: String, CaseIterable, Identifiable, Codable {
     case cpu, memory, disk, network, sensors, fans, battery, weather, date
@@ -61,11 +62,12 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
 }
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case cpu, memory, disk, network, sensors, battery, weather, date
+    case cpu, memory, disk, network, sensors, battery, weather, date, widgets
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .widgets: "Widget"
         case .cpu: "CPU"
         case .memory: "Memoria"
         case .disk: "Disco"
@@ -87,11 +89,12 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .battery: "battery.75percent"
         case .weather: "cloud.sun"
         case .date: "calendar"
+        case .widgets: "square.grid.2x2"
         }
     }
 
-    /// Optional tabs only appear while their module is enabled.
-    var isOptional: Bool { self == .weather || self == .date }
+    /// Optional tabs only appear while their module (or, for Widget, the setting) is enabled.
+    var isOptional: Bool { self == .weather || self == .date || self == .widgets }
 }
 
 /// Optional sections of the dropdown. A hidden section is also not measured (no process list, no nettop,
@@ -166,9 +169,23 @@ enum PanelSection: String, CaseIterable, Identifiable, Codable {
         case .sensors: self == .sensorsFans ? .fans : .sensors
         case .battery: .battery
         case .weather: .weather
-        case .date: .date
+        case .date, .widgets: .date
         }
     }
+}
+
+/// A widget placed in the dropdown's Widget tab.
+struct PanelWidget: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var element: WidgetElement
+    var size: WidgetSize
+
+    static let defaults: [PanelWidget] = [
+        PanelWidget(element: .overview, size: .medium),
+        PanelWidget(element: .cpu, size: .small),
+        PanelWidget(element: .memory, size: .small),
+        PanelWidget(element: .network, size: .medium),
+    ]
 }
 
 // MARK: - Per-module menu bar styles
@@ -284,6 +301,11 @@ final class Settings: ObservableObject {
     @Published var showCountryFlag: Bool { didSet { save(showCountryFlag, "showCountryFlag") } }
     @Published var showVPN: Bool { didSet { save(showVPN, "showVPN") } }
     @Published var hiddenSections: Set<PanelSection> { didSet { save(hiddenSections.map(\.rawValue), "hiddenSections") } }
+    /// The dropdown's Widget tab and the widgets in it, in order.
+    @Published var showWidgetTab: Bool { didSet { save(showWidgetTab, "showWidgetTab") } }
+    @Published var panelWidgets: [PanelWidget] {
+        didSet { if let data = try? JSONEncoder().encode(panelWidgets) { save(data, "panelWidgets") } }
+    }
 
     // Menu bar modules
     @Published var moduleOrder: [ModuleID] { didSet { save(moduleOrder.map(\.rawValue), "moduleOrder") } }
@@ -352,6 +374,9 @@ final class Settings: ObservableObject {
         showVPNCountry = bool("showVPNCountry", true)
         showCountryFlag = bool("showCountryFlag", true)
         showVPN = bool("showVPN", true)
+        showWidgetTab = bool("showWidgetTab", true)
+        panelWidgets = defaults.data(forKey: "panelWidgets").flatMap { try? JSONDecoder().decode([PanelWidget].self, from: $0) }
+            ?? PanelWidget.defaults
         hiddenSections = Set((defaults.stringArray(forKey: "hiddenSections") ?? []).compactMap(PanelSection.init(rawValue:)))
 
         let savedOrder = (defaults.stringArray(forKey: "moduleOrder") ?? []).compactMap(ModuleID.init(rawValue:))

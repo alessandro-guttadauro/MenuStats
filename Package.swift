@@ -13,9 +13,27 @@ let package = Package(
         ),
         // XPC interface shared by the app and its privileged helper.
         .target(name: "MenuStatsShared", path: "Sources/MenuStatsShared"),
+        // Widget data model and SwiftUI views, shared by the desktop widgets and the dropdown's Widget tab.
+        .target(
+            name: "MenuStatsWidgetUI",
+            path: "Sources/MenuStatsWidgetUI",
+            swiftSettings: [.unsafeFlags(["-application-extension"])]
+        ),
+        // WidgetKit extension (packaged by build-app.sh as Contents/PlugIns/MenuStatsWidgets.appex).
+        .executableTarget(
+            name: "MenuStatsWidgets",
+            dependencies: ["MenuStatsWidgetUI"],
+            path: "Sources/MenuStatsWidgets",
+            swiftSettings: [.unsafeFlags(["-application-extension", "-parse-as-library"])],
+            linkerSettings: [
+                .linkedFramework("WidgetKit"),
+                .linkedFramework("SwiftUI"),
+                .unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain", "-Xlinker", "-application_extension"]),
+            ]
+        ),
         .executableTarget(
             name: "MenuStats",
-            dependencies: ["CIOKitPrivate", "MenuStatsShared"],
+            dependencies: ["CIOKitPrivate", "MenuStatsShared", "MenuStatsWidgetUI"],
             path: "Sources/MenuStats",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -23,6 +41,7 @@ let package = Package(
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("CoreLocation"),
+                .linkedFramework("WidgetKit"),
                 .linkedLibrary("sqlite3"),
             ]
         ),

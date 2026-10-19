@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 swift build -c release --product MenuStats
 swift build -c release --product MenuStatsHelper
+swift build -c release --product MenuStatsWidgets
 APP=build/MenuStats.app
 # Version: VERSION=… or the latest git tag (v1.2.3 → 1.2.3), so local installs show the real version.
 VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
@@ -16,6 +17,37 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Library/LaunchDaemons" "$APP/Contents/Resources"
 cp .build/release/MenuStats "$APP/Contents/MacOS/MenuStats"
 cp .build/release/MenuStatsHelper "$APP/Contents/MacOS/MenuStatsHelper"
+
+# Desktop widgets: WidgetKit extension, sandboxed, reading only ~/Library/Application Support/MenuStats/.
+APPEX="$APP/Contents/PlugIns/MenuStatsWidgets.appex"
+mkdir -p "$APPEX/Contents/MacOS"
+cp .build/release/MenuStatsWidgets "$APPEX/Contents/MacOS/MenuStatsWidgets"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+cat > "$APPEX/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>MenuStatsWidgets</string>
+    <key>CFBundleDisplayName</key><string>MenuStats</string>
+    <key>CFBundleIdentifier</key><string>local.menustats.widgets</string>
+    <key>CFBundleExecutable</key><string>MenuStatsWidgets</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+    <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
+    <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+    <key>DTPlatformName</key><string>macosx</string>
+    <key>DTPlatformVersion</key><string>${SDK_VERSION}</string>
+    <key>DTSDKName</key><string>macosx${SDK_VERSION}</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string>
+    </dict>
+</dict>
+</plist>
+PLIST
 
 # Liquid Glass app icon (Icon Composer): Assets.car for macOS 26+, AppIcon.icns for older systems.
 xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platform macosx \
@@ -59,7 +91,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Inner code first: the helper, then the app (whose signature seals the helper and the plist).
+# Inner code first: the helper and the widgets, then the app (whose signature seals them and the plist).
 codesign --force --options runtime --sign "$IDENTITY" --identifier local.menustats.helper "$APP/Contents/MacOS/MenuStatsHelper"
+codesign --force --options runtime --sign "$IDENTITY" --entitlements scripts/widgets.entitlements "$APPEX"
 codesign --force --sign "$IDENTITY" "$APP"
 echo "Creato $APP"

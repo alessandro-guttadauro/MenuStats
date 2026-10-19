@@ -39,6 +39,10 @@ meteo e data. Compatto, preciso e leggero.
   stessa che mostra iStat Menus.
 - **Leggero davvero**: circa l'1% di un core a riposo. Legge spesso solo ciò che stai guardando.
 - **Tuo**: stile per ogni modulo, colori, ordine, sezioni della tendina da mostrare o nascondere.
+- **Widget**: sulla scrivania, nel Centro Notifiche e in una scheda della tendina. Un elemento alla volta o la
+  panoramica di tutto, in formato piccolo, medio o grande.
+- **Si aggiorna da solo**: quando esce una nuova versione compare un'icona nella barra dei menu; un clic e
+  MenuStats si scarica, si verifica e si reinstalla, senza comandi e senza un nuovo "Apri comunque".
 
 ## 📥 Installazione
 
@@ -48,10 +52,12 @@ meteo e data. Compatto, preciso e leggero.
    ```bash
    xattr -dr com.apple.quarantine /Applications/MenuStats.app
    ```
-3. Facoltativo, per controllare le ventole: Impostazioni ▸ **Ventole** ▸ *Installa helper*, poi consenti MenuStats
+3. Da qui in poi gli aggiornamenti arrivano dall'app: Impostazioni ▸ **Aggiornamenti** (controllo automatico ogni
+   6 ore, attivo di serie).
+4. Facoltativo, per controllare le ventole: Impostazioni ▸ **Ventole** ▸ *Installa helper*, poi consenti MenuStats
    in Impostazioni di Sistema ▸ Generali ▸ **Elementi login**.
 
-> **Requisiti**: Mac con Apple Silicon e macOS 13 o successivo. Sviluppato e verificato su MacBook Pro M3 Pro con
+> **Requisiti**: Mac con Apple Silicon e macOS 13 o successivo (macOS 14 per i widget della scrivania). Sviluppato e verificato su MacBook Pro M3 Pro con
 > macOS 27; i sensori dell'M4 Pro sono stati confrontati con iStat Menus.
 
 ## 🧩 Moduli
@@ -70,6 +76,44 @@ meteo e data. Compatto, preciso e leggero.
 
 Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
 Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
+
+## 🧱 Widget
+
+Ogni elemento ha il suo widget, e la **Panoramica** li mette tutti insieme. Fai clic destro sulla scrivania ▸
+**Modifica widget…** e cerca *MenuStats*: CPU, Memoria, Disco, Rete, Temperature, Ventole, Batteria e Meteo in
+formato piccolo o medio, la Panoramica anche grande. Gli stessi widget, con i dati in tempo reale, stanno nella
+scheda **Widget** della tendina: scegli quali, in che ordine e di che dimensione (clic destro su un widget, oppure
+Impostazioni ▸ Widget).
+
+<p align="center"><img src="docs/screenshots/widgets.png" alt="Tutti i widget di MenuStats sulla scrivania" width="100%"></p>
+
+<details>
+<summary><b>Come funzionano</b></summary>
+<br>
+
+- I widget della scrivania sono un'estensione WidgetKit sandbox. MenuStats scrive ogni minuto un piccolo file
+  JSON in `~/Library/Application Support/MenuStats/widget.json` (solo se c'è almeno un widget sulla scrivania) e
+  l'estensione può leggere solo quella cartella.
+- macOS limita quante volte un widget si ridisegna: i widget si aggiornano ogni pochi minuti e mostrano l'ora
+  dei dati. Con ⚠︎ i dati sono vecchi, perché MenuStats è chiuso o il Mac dormiva.
+- Nella tendina i widget si aggiornano a ogni campione, come il resto dell'app.
+
+</details>
+
+## 🔄 Aggiornamenti
+
+Ogni push su `main` (commit diretti e pull request unite) pubblica da solo una nuova
+[release](https://github.com/thomas-addamo/MenuStats/releases) con GitHub Actions. MenuStats la trova (controllo
+ogni 6 ore, o *Controlla ora*) e mostra un'icona ⬇︎ nella barra dei menu che apre Impostazioni ▸ Aggiornamenti.
+*Scarica e installa*:
+
+1. scarica lo zip della release da GitHub;
+2. ne confronta l'impronta SHA-256 con quella pubblicata da GitHub;
+3. controlla che dentro ci sia MenuStats, con una firma valida e una versione più recente;
+4. chiude l'app, sostituisce il contenuto del pacchetto al suo posto e la riapre. Impostazioni, storico, avvio al
+   login e helper delle ventole restano.
+
+Un file scaricato dall'app non ha il flag di quarantena, quindi macOS non chiede di nuovo "Apri comunque".
 
 ## 🎨 Personalizzazione
 
@@ -137,6 +181,7 @@ eccezioni, tutte **spente di default**:
 |---|---|---|
 | Meteo | il nome cercato, poi le coordinate della città → [Open-Meteo](https://open-meteo.com) | modulo attivo, ogni 15 minuti |
 | Meteo automatico | posizione arrotondata a circa 1 km (con il permesso di macOS) | solo in modalità automatica |
+| Aggiornamenti | una richiesta all'API delle release di GitHub | ogni 6 ore (disattivabile), e il download solo quando lo chiedi |
 | IP pubblico | una richiesta a ipwho.is (e api4.ipify.org per l'IPv4) | opzione attiva e scheda Rete aperta, al massimo ogni 5 minuti |
 
 Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
@@ -181,11 +226,13 @@ flowchart TB
     ST[Impostazioni]
     H[MenuStatsHelper: root via XPC]
     W[Open-Meteo e ipwho.is, solo se attivi]
+    WG[Widget WidgetKit: leggono widget.json]
 
     SRC --> SM
     SM --> AM
     AM --> SB
     AM --> DP
+    AM -->|ogni minuto| WG
     W -.-> AM
     ST -.->|cosa è visibile| SM
     DP -->|velocità ventole| H
@@ -199,6 +246,9 @@ flowchart TB
 | Barra dei menu | `Sources/MenuStats/UI/Menubar` |
 | Tendina | `Sources/MenuStats/UI/Panel` |
 | Impostazioni | `Sources/MenuStats/UI/Settings` |
+| Widget (dati e viste condivise) | `Sources/MenuStatsWidgetUI` |
+| Estensione WidgetKit | `Sources/MenuStatsWidgets` |
+| Aggiornamenti | `Sources/MenuStats/Model/Updater.swift`, `.github/workflows/release.yml` |
 | Helper ventole | `Sources/MenuStatsHelper`, `Sources/MenuStatsShared` |
 | SMC, HID, limite di carica (C/Objective-C) | `Sources/CIOKitPrivate` |
 
@@ -223,7 +273,9 @@ git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
 ## 🤝 Contribuire
 
 Le pull request sono benvenute. Prima di aprirne una: `swift build` senza avvisi, `--verify` a 18/18 e, per le
-modifiche visive, uno sguardo a `--render-ui`. Grazie a chi ha già contribuito:
+modifiche visive, uno sguardo a `--render-ui`. Quando una pull request viene unita parte da sola una nuova release
+(versione patch; scrivi `[minor]` o `[major]` in un commit per alzare quelle, `[skip release]` per non pubblicare).
+Grazie a chi ha già contribuito:
 
 <a href="https://github.com/thomas-addamo/MenuStats/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=thomas-addamo/MenuStats" alt="Contributori">

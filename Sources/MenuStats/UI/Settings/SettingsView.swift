@@ -3,7 +3,7 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsPage: Hashable, Identifiable {
-    case general, menubar, module(ModuleID), notifications, about
+    case general, menubar, module(ModuleID), widgets, updates, notifications, about
     var id: Self { self }
 
     var title: String {
@@ -11,6 +11,8 @@ enum SettingsPage: Hashable, Identifiable {
         case .general: "Generale"
         case .menubar: "Barra dei menu"
         case .module(let module): module.name
+        case .widgets: "Widget"
+        case .updates: "Aggiornamenti"
         case .notifications: "Notifiche"
         case .about: "Info"
         }
@@ -21,10 +23,18 @@ enum SettingsPage: Hashable, Identifiable {
         case .general: "gearshape"
         case .menubar: "menubar.rectangle"
         case .module(let module): module.symbol
+        case .widgets: "square.grid.2x2"
+        case .updates: "arrow.down.circle"
         case .notifications: "bell.badge"
         case .about: "info.circle"
         }
     }
+}
+
+/// The page the settings window shows; set before opening it to jump to a page (e.g. from the dropdown).
+final class SettingsNavigation: ObservableObject {
+    static let shared = SettingsNavigation()
+    @Published var page: SettingsPage? = .general
 }
 
 struct SettingsView: View {
@@ -37,11 +47,12 @@ struct SettingsView: View {
         self.feed = model.slowFeed
         self.settings = settings
     }
-    @State private var page: SettingsPage? = .general
+    @ObservedObject private var navigation = SettingsNavigation.shared
+    private var page: SettingsPage? { navigation.page }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $page) {
+            List(selection: $navigation.page) {
                 Section {
                     row(.general)
                     row(.menubar)
@@ -50,6 +61,8 @@ struct SettingsView: View {
                     ForEach(ModuleID.allCases.filter { $0.isAvailable || $0 == .fans }) { row(.module($0)) }
                 }
                 Section {
+                    row(.widgets)
+                    row(.updates)
                     row(.notifications)
                     row(.about)
                 }
@@ -82,6 +95,8 @@ struct SettingsView: View {
         case .general: GeneralSettings(settings: settings)
         case .menubar: MenubarSettings(model: model, snapshot: feed.snapshot, settings: settings)
         case .module(let module): ModuleSettings(module: module, model: model, snapshot: feed.snapshot, settings: settings)
+        case .widgets: WidgetSettings(model: model, settings: settings)
+        case .updates: UpdateSettings(updater: model.updater)
         case .notifications: NotificationSettings(settings: settings)
         case .about: AboutSettings(model: model)
         }

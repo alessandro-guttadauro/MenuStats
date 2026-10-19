@@ -1,4 +1,5 @@
 import AppKit
+import MenuStatsWidgetUI
 import SwiftUI
 
 /// Offscreen renders of the UI for visual checks (`--render-ui`): menu bar styles, dashboard tabs, settings pages.
@@ -32,7 +33,12 @@ enum UITestRenderer {
                 model.setNetworkProcessSampling(false) // offscreen views never disappear, so stop nettop here
             }
         }
+        for dark in [true, false] {
+            renderWidgetGallery(model: model, dark: dark, to: directory.appendingPathComponent("widgets-\(dark ? "dark" : "light").png"))
+        }
         let pages: [(String, AnyView)] = [
+            ("widgets", AnyView(WidgetSettings(model: model, settings: settings))),
+            ("updates", AnyView(UpdateSettings(updater: model.updater))),
             ("general", AnyView(GeneralSettings(settings: settings))),
             ("menubar", AnyView(MenubarSettings(model: model, snapshot: model.snapshot, settings: settings))),
             ("cpu", AnyView(ModuleSettings(module: .cpu, model: model, snapshot: model.snapshot, settings: settings))),
@@ -44,6 +50,50 @@ enum UITestRenderer {
             save(page.padding(22).frame(width: 640).background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua,
                  to: directory.appendingPathComponent("settings-\(name).png"))
         }
+    }
+
+    /// Every desktop widget (each element, each size) at its real macOS size on a wallpaper-like gradient.
+    private static func renderWidgetGallery(model: AppModel, dark: Bool, to url: URL) {
+        model.setVisibleTab(.widgets)
+        model.tick()
+        let data = model.widgetData(minutes: true, forceWeather: true)
+        func tile(_ element: WidgetElement, _ size: WidgetSize) -> some View {
+            let frame: CGSize = switch size {
+            case .small: CGSize(width: 170, height: 170)
+            case .medium: CGSize(width: 364, height: 170)
+            case .large: CGSize(width: 364, height: 382)
+            }
+            return MenuStatsWidgetView(element: element, size: size, data: data)
+                .padding(16)
+                .frame(width: frame.width, height: frame.height)
+                .background(WidgetBackground(element: element))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+        }
+        let singles = WidgetElement.allCases.filter { $0 != .overview }
+        let view = HStack(alignment: .top, spacing: 24) {
+            VStack(spacing: 24) {
+                tile(.overview, .large)
+                tile(.overview, .medium)
+                HStack(spacing: 24) { tile(.overview, .small); tile(.cpu, .small) }
+            }
+            VStack(spacing: 24) {
+                ForEach(Array(stride(from: 0, to: singles.count, by: 2)), id: \.self) { index in
+                    HStack(spacing: 24) {
+                        tile(singles[index], .small)
+                        if index + 1 < singles.count { tile(singles[index + 1], .small) } else { Color.clear.frame(width: 170, height: 170) }
+                    }
+                }
+            }
+            VStack(spacing: 24) {
+                ForEach(singles) { tile($0, .medium) }
+            }
+        }
+        .padding(40)
+        .background(LinearGradient(colors: dark ? [Color(red: 0.10, green: 0.12, blue: 0.25), Color(red: 0.30, green: 0.12, blue: 0.32)]
+                                                : [Color(red: 0.55, green: 0.72, blue: 0.95), Color(red: 0.95, green: 0.75, blue: 0.80)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing))
+        save(view, appearance: dark ? .darkAqua : .aqua, to: url)
     }
 
     /// Every module in every style, on a light and a dark menu bar strip.

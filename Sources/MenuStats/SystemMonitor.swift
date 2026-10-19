@@ -81,6 +81,8 @@ final class SystemMonitor {
         if demand.menubar.contains(.sensors) || tab == .sensors { live.insert(.cpuTemperatures) }
         if demand.shows(.sensorsGrid) { live.insert(.gpuTemperatures) }
         if demand.shows(.sensorsFans) || demand.shows(.batteryCharts) { live.insert(.power) }
+        // The Widget tab can show temperatures and fans of any element.
+        if tab == .widgets { live.formUnion([.fans, .cpuTemperatures, .gpuTemperatures]) }
 
         return Snapshot(
             cpu: cpuReader.sample(),
