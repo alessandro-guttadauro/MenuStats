@@ -86,11 +86,15 @@ MenuStats non cerca né mostra dispositivi di altre persone. Il Bluetooth dà la
 può nascondere da Impostazioni ▸ Mappa; l'elenco con le distanze resta.
 
 **Blocca il Mac se mi allontano** (Impostazioni ▸ Mappa, spento di default): scegli uno o più dei tuoi dispositivi, per
-esempio iPhone o Apple Watch, e un tempo di attesa (da 15 secondi a 5 minuti). Quando non li sente più per quel tempo, il
+esempio iPhone o Apple Watch, e un tempo di attesa (da 2 secondi a 5 minuti). Quando non li sente più per quel tempo, il
 Mac si blocca, come con Control-Comando-Q, senza permessi in più. Funziona sempre, anche a scheda chiusa, con una lettura
-ogni 10-60 secondi a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto; dopo il blocco non scatta di
+ogni 1-60 secondi, secondo il tempo scelto, a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto; dopo il blocco non scatta di
 nuovo finché un dispositivo scelto non torna vicino, così sbloccare a mano non crea un ciclo di blocchi. Con più
-dispositivi scegli se blocca quando se ne allontana uno qualsiasi o tutti.
+dispositivi scegli se blocca quando se ne allontana uno qualsiasi o tutti. Puoi anche impostare una **distanza massima in
+metri**: un dispositivo oltre quel limite conta come lontano, e accanto a ogni dispositivo vedi la distanza "ora" per
+tarare il valore. La distanza è una stima dal segnale e può sbagliare di diversi metri; macOS aggiorna il segnale di
+ogni dispositivo solo ogni pochi secondi, quindi i tempi molto brevi (2-5 secondi) non reagiscono davvero più in fretta e
+possono bloccare il Mac per un calo momentaneo.
 
 Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
 Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.

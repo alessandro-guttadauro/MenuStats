@@ -285,7 +285,8 @@ struct NearbyDevicesSettings: View {
     @State private var confirmingTest = false
 
     private static let graceOptions: [(label: String, seconds: Int)] = [
-        ("15 secondi", 15), ("30 secondi", 30), ("1 minuto", 60), ("2 minuti", 120), ("5 minuti", 300),
+        ("2 secondi", 2), ("5 secondi", 5), ("10 secondi", 10), ("15 secondi", 15), ("30 secondi", 30),
+        ("1 minuto", 60), ("2 minuti", 120), ("5 minuti", 300),
     ]
 
     var body: some View {
@@ -294,7 +295,7 @@ struct NearbyDevicesSettings: View {
             Toggle("Mostra il radar nella scheda Mappa", isOn: $settings.nearbyShowRadar)
         }
         SettingsSection(title: "Blocca il Mac se mi allontano",
-                        footnote: "Funziona sempre, a scheda chiusa, finché è acceso: MenuStats legge i dispositivi ogni pochi secondi, a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto, così l'opzione non scatta se il telefono è in un'altra stanza quando la accendi. Dopo il blocco non scatta di nuovo finché un dispositivo scelto non torna vicino. Cuffie e AirPods spesso spariscono dal segnale quando li metti nella custodia: meglio scegliere iPhone o Apple Watch. È una comodità, non una sicurezza: il segnale Bluetooth può restare anche a distanza o sparire per un attimo.") {
+                        footnote: "Funziona sempre, a scheda chiusa, finché è acceso: MenuStats legge i dispositivi ogni pochi secondi (da 1 a 60, secondo il tempo scelto), a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto, così l'opzione non scatta se il telefono è in un'altra stanza quando la accendi. Dopo il blocco non scatta di nuovo finché un dispositivo scelto non torna vicino. Cuffie e AirPods spesso spariscono dal segnale quando li metti nella custodia: meglio scegliere iPhone o Apple Watch. È una comodità, non una sicurezza: il segnale Bluetooth può restare anche a distanza o sparire per un attimo.") {
             Toggle("Blocca il Mac quando i dispositivi scelti si allontanano", isOn: $settings.proximityLockEnabled)
             if settings.proximityLockEnabled || !settings.proximityLockDevices.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -304,7 +305,10 @@ struct NearbyDevicesSettings: View {
                             HStack(spacing: 6) {
                                 Image(systemName: NearbyMath.symbol(name: entry.name, kind: entry.kind)).frame(width: 16)
                                 Text(entry.name).lineLimit(1)
-                                if entry.rssi == nil, !entry.connected {
+                                if let rssi = entry.rssi {
+                                    Text("ora " + NearbyMath.label(forDistance: NearbyMath.distance(rssi: rssi)))
+                                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                                } else if !entry.connected {
                                     Text("non nelle vicinanze").font(.system(size: 10.5)).foregroundStyle(.secondary)
                                 }
                             }
@@ -320,6 +324,22 @@ struct NearbyDevicesSettings: View {
                 }
                 Picker("Dopo che non lo sento da", selection: $settings.proximityLockGrace) {
                     ForEach(Self.graceOptions, id: \.seconds) { Text($0.label).tag($0.seconds) }
+                }
+                if settings.proximityLockGrace <= 5 {
+                    Text("Con tempi così brevi il Mac può bloccarsi per un calo momentaneo del segnale. macOS aggiorna il segnale di ogni dispositivo solo ogni pochi secondi, quindi non reagisce davvero più in fretta di così.")
+                        .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                Toggle("Considera lontano anche oltre una distanza", isOn: $settings.proximityLockUseDistance)
+                if settings.proximityLockUseDistance {
+                    HStack(spacing: 8) {
+                        Text("Distanza massima")
+                        TextField("", value: distanceBinding, format: .number.precision(.fractionLength(0...1)))
+                            .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width: 60)
+                        Text("metri")
+                        Stepper("", value: distanceBinding, in: 1...50, step: 0.5).labelsHidden()
+                    }
+                    Text("La distanza è una stima dal segnale e può sbagliare di diversi metri: guarda il valore \"ora\" accanto a ogni dispositivo, tenendolo dove vuoi che sia il limite, e regola di conseguenza. Il dispositivo conta come lontano solo se resta oltre la distanza per tutto il tempo scelto.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if settings.proximityLockDevices.isEmpty {
                     Text("Scegli almeno un dispositivo, altrimenti il blocco non si attiva.").font(.system(size: 11)).foregroundStyle(.orange)
@@ -343,6 +363,12 @@ struct NearbyDevicesSettings: View {
         let missing = settings.proximityLockDevices.filter { !listed.contains($0.key) }
             .map { NearbyDeviceReader.Entry(id: $0.key, name: $0.value, kind: nil, connected: false, rssi: nil) }
         return (known + missing).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Meters typed by hand, kept between 1 and 50.
+    private var distanceBinding: Binding<Double> {
+        Binding(get: { settings.proximityLockDistance },
+                set: { settings.proximityLockDistance = min(max($0, 1), 50) })
     }
 
     private func binding(for entry: NearbyDeviceReader.Entry) -> Binding<Bool> {

@@ -47,6 +47,8 @@ final class ProximityLock: ObservableObject {
     private let lockAction: () -> Void
     private let canLockNow: () -> Bool
     private var logic = ProximityLogic()
+    /// Signal per watched device, smoothed over the last readings so one noisy value does not move the distance.
+    private var smoothedSignal: [String: Double] = [:]
     private var timer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private let queue = DispatchQueue(label: "menustats.proximity", qos: .utility)
@@ -72,8 +74,9 @@ final class ProximityLock: ObservableObject {
         configure()
     }
 
-    /// How often the devices are read: a few times per grace period, between 10 and 60 seconds.
-    static func interval(forGrace grace: Int) -> TimeInterval { min(max(Double(grace) / 3, 10), 60) }
+    /// How often the devices are read: a few times per grace period, between 1 and 60 seconds. macOS itself refreshes a
+    /// device's signal only every few seconds, so reading faster than that gains nothing.
+    static func interval(forGrace grace: Int) -> TimeInterval { min(max(Double(grace) / 3, 1), 60) }
 
     private func configure() {
         let active = settings.proximityLockEnabled && !settings.proximityLockDevices.isEmpty
@@ -81,6 +84,7 @@ final class ProximityLock: ObservableObject {
             timer?.invalidate()
             timer = nil
             logic = ProximityLogic()
+            smoothedSignal.removeAll()
             presentCount = 0
             return
         }
@@ -106,8 +110,22 @@ final class ProximityLock: ObservableObject {
     func handle(_ entries: [NearbyDeviceReader.Entry], now: Date) {
         guard settings.proximityLockEnabled else { return }
         let watched = Set(settings.proximityLockDevices.keys)
-        // A device is here when macOS measures a signal for it or it is connected.
-        let present = Set(entries.filter { $0.rssi != nil || $0.connected }.map(\.id)).intersection(watched)
+        // A device is near when macOS measures a signal for it or it is connected, and, if the distance limit is on,
+        // its estimated distance is within it. A connected device with no signal reading counts as near.
+        var near = Set<String>()
+        var withSignal = Set<String>()
+        for entry in entries where watched.contains(entry.id) {
+            if let rssi = entry.rssi {
+                smoothedSignal[entry.id] = NearbyMath.smooth(smoothedSignal[entry.id], rssi)
+                withSignal.insert(entry.id)
+            }
+            guard entry.rssi != nil || entry.connected else { continue }
+            if settings.proximityLockUseDistance, let signal = smoothedSignal[entry.id], entry.rssi != nil,
+               NearbyMath.distance(rssi: signal) > settings.proximityLockDistance { continue }
+            near.insert(entry.id)
+        }
+        smoothedSignal = smoothedSignal.filter { withSignal.contains($0.key) }
+        let present = near
         presentCount = present.count
         let lock = logic.evaluate(present: present, watched: watched, requiresAll: settings.proximityLockRequiresAll,
                                   grace: Double(settings.proximityLockGrace), now: now, canLock: canLockNow())

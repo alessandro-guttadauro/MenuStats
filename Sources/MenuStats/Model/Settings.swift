@@ -361,6 +361,9 @@ final class Settings: ObservableObject {
     @Published var proximityLockRequiresAll: Bool { didSet { save(proximityLockRequiresAll, "proximityLockRequiresAll") } }
     /// Seconds a device must stay out of range before the Mac locks.
     @Published var proximityLockGrace: Int { didSet { save(proximityLockGrace, "proximityLockGrace") } }
+    /// Also count a device as away when it is farther than `proximityLockDistance` meters (estimated from the signal).
+    @Published var proximityLockUseDistance: Bool { didSet { save(proximityLockUseDistance, "proximityLockUseDistance") } }
+    @Published var proximityLockDistance: Double { didSet { save(proximityLockDistance, "proximityLockDistance") } }
     @Published var weatherLocationMode: WeatherLocationMode { didSet { save(weatherLocationMode.rawValue, "weatherLocationMode") } }
     @Published var weatherLocation: WeatherLocation? {
         didSet {
@@ -457,6 +460,8 @@ final class Settings: ObservableObject {
         proximityLockDevices = defaults.dictionary(forKey: "proximityLockDevices") as? [String: String] ?? [:]
         proximityLockRequiresAll = bool("proximityLockRequiresAll", false)
         proximityLockGrace = defaults.object(forKey: "proximityLockGrace") as? Int ?? 30
+        proximityLockUseDistance = bool("proximityLockUseDistance", false)
+        proximityLockDistance = double("proximityLockDistance", 5)
         weatherLocationMode = string("weatherLocationMode", WeatherLocationMode.manual)
         weatherLocation = defaults.data(forKey: "weatherLocation").flatMap { try? JSONDecoder().decode(WeatherLocation.self, from: $0) }
 
