@@ -4,9 +4,12 @@ import SwiftUI
 final class SettingsWindowController {
     private var window: NSWindow?
     private let model: AppModel
+    /// Called before the window appears, so a new window gets the chosen appearance.
+    private let willShow: () -> Void
 
-    init(model: AppModel) {
+    init(model: AppModel, willShow: @escaping () -> Void = {}) {
         self.model = model
+        self.willShow = willShow
     }
 
     func show() {
@@ -19,6 +22,7 @@ final class SettingsWindowController {
             window.center()
             self.window = window
         }
+        willShow()
         // MenuStats is a menu bar (accessory) app, so it must be activated explicitly to come to the front.
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)

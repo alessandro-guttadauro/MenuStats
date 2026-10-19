@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Combine
 import Foundation
 
@@ -64,7 +65,7 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
 }
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case cpu, memory, disk, network, sensors, battery, weather, date, awake
+    case cpu, memory, disk, network, sensors, battery, weather, date, awake, map
     var id: String { rawValue }
 
     var title: String {
@@ -78,6 +79,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .weather: "Meteo"
         case .date: "Data"
         case .awake: "Sveglio"
+        case .map: "Mappa"
         }
     }
 
@@ -92,8 +94,12 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .weather: "cloud.sun"
         case .date: "calendar"
         case .awake: "cup.and.saucer"
+        case .map: "map"
         }
     }
+
+    /// The palette step a tab uses for its main color, so "Personalizza colore" can replace it.
+    var primaryColorIndex: Int { self == .battery ? 2 : 0 }
 
     /// Optional tabs only appear while their module is enabled.
     var isOptional: Bool { self == .weather || self == .date || self == .awake }
@@ -170,7 +176,7 @@ enum PanelSection: String, CaseIterable, Identifiable, Codable {
         case .network: .network
         case .sensors: self == .sensorsFans ? .fans : .sensors
         case .battery: .battery
-        case .weather: .weather
+        case .weather, .map: .weather // no section lives in the Map tab
         case .date: .date
         case .awake: .awake
         }
@@ -262,6 +268,13 @@ enum MenubarLayout: String, StyleOption {
     var label: String { ["Una voce unica (compatta)", "Una voce per modulo"][Self.allCases.firstIndex(of: self)!] }
 }
 
+/// Look of MenuStats' own windows (dropdown and Settings). The menu bar keeps following macOS.
+enum AppearanceMode: String, StyleOption {
+    case system, light, dark, automatic
+    var label: String { ["Normale", "Chiara", "Scura", "Automatica"][Self.allCases.firstIndex(of: self)!] }
+    var symbol: String { ["circle.lefthalf.filled", "sun.max", "moon", "clock"][Self.allCases.firstIndex(of: self)!] }
+}
+
 enum TemperatureUnit: String, StyleOption {
     case celsius, fahrenheit
     var label: String { ["Celsius (°C)", "Fahrenheit (°F)"][Self.allCases.firstIndex(of: self)!] }
@@ -295,6 +308,14 @@ final class Settings: ObservableObject {
     @Published var showCountryFlag: Bool { didSet { save(showCountryFlag, "showCountryFlag") } }
     @Published var showVPN: Bool { didSet { save(showVPN, "showVPN") } }
     @Published var hiddenSections: Set<PanelSection> { didSet { save(hiddenSections.map(\.rawValue), "hiddenSections") } }
+    @Published var appearanceMode: AppearanceMode { didSet { save(appearanceMode.rawValue, "appearanceMode") } }
+    /// Colors picked with "Personalizza colore"; a tab without an entry keeps the built-in palette.
+    @Published var tabColors: [DashboardTab: String] {
+        didSet { save(Dictionary(uniqueKeysWithValues: tabColors.map { ($0.key.rawValue, $0.value) }), "tabColors") }
+    }
+    /// Narrow menu bar (no labels, only the first modules), so macOS 27 is less likely to hide it next to the notch.
+    @Published var compactMenubar: Bool { didSet { save(compactMenubar, "compactMenubar") } }
+    @Published var compactModuleCount: Int { didSet { save(compactModuleCount, "compactModuleCount") } }
 
     // Menu bar modules
     @Published var moduleOrder: [ModuleID] { didSet { save(moduleOrder.map(\.rawValue), "moduleOrder") } }
@@ -349,6 +370,12 @@ final class Settings: ObservableObject {
     @Published var alertBatteryCharged: Bool { didSet { save(alertBatteryCharged, "alertBatteryCharged") } }
     @Published var alertBatteryChargedThreshold: Double { didSet { save(alertBatteryChargedThreshold, "alertBatteryChargedThreshold") } }
     @Published var alertFans: Bool { didSet { save(alertFans, "alertFans") } }
+    @Published var alertAppCPU: Bool { didSet { save(alertAppCPU, "alertAppCPU") } }
+    /// Fraction of one core, like Activity Monitor (1 = 100%).
+    @Published var alertAppCPUThreshold: Double { didSet { save(alertAppCPUThreshold, "alertAppCPUThreshold") } }
+    @Published var alertDiskLow: Bool { didSet { save(alertDiskLow, "alertDiskLow") } }
+    @Published var alertDiskLowThreshold: Double { didSet { save(alertDiskLowThreshold, "alertDiskLowThreshold") } }
+    @Published var alertNetworkDown: Bool { didSet { save(alertNetworkDown, "alertNetworkDown") } }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -377,6 +404,11 @@ final class Settings: ObservableObject {
         showCountryFlag = bool("showCountryFlag", true)
         showVPN = bool("showVPN", true)
         hiddenSections = Set((defaults.stringArray(forKey: "hiddenSections") ?? []).compactMap(PanelSection.init(rawValue:)))
+        appearanceMode = string("appearanceMode", AppearanceMode.system)
+        let savedTabColors = defaults.dictionary(forKey: "tabColors") as? [String: String] ?? [:]
+        tabColors = Dictionary(uniqueKeysWithValues: savedTabColors.compactMap { key, value in DashboardTab(rawValue: key).map { ($0, value) } })
+        compactMenubar = bool("compactMenubar", false)
+        compactModuleCount = defaults.object(forKey: "compactModuleCount") as? Int ?? 3
 
         let savedOrder = (defaults.stringArray(forKey: "moduleOrder") ?? []).compactMap(ModuleID.init(rawValue:))
         moduleOrder = (savedOrder + ModuleID.allCases.filter { !savedOrder.contains($0) }).filter(\.isAvailable)
@@ -417,6 +449,11 @@ final class Settings: ObservableObject {
         alertBatteryCharged = bool("alertBatteryCharged", false)
         alertBatteryChargedThreshold = double("alertBatteryChargedThreshold", 0.8)
         alertFans = bool("alertFans", false)
+        alertAppCPU = bool("alertAppCPU", false)
+        alertAppCPUThreshold = double("alertAppCPUThreshold", 0.8)
+        alertDiskLow = bool("alertDiskLow", false)
+        alertDiskLowThreshold = double("alertDiskLowThreshold", 0.1)
+        alertNetworkDown = bool("alertNetworkDown", false)
 
         Format.fahrenheit = temperatureUnit == .fahrenheit
     }
@@ -429,6 +466,11 @@ final class Settings: ObservableObject {
 
     func color(for module: ModuleID) -> NSColor {
         NSColor(hex: moduleColors[module] ?? "") ?? NSColor(hex: Settings.defaultColors[module]!)!
+    }
+
+    /// The custom color of a dashboard tab, if the user picked one.
+    func customColor(for tab: DashboardTab) -> Color? {
+        tabColors[tab].flatMap(NSColor.init(hex:)).map(Color.init(nsColor:))
     }
 
     /// Enabled modules in the user's order.

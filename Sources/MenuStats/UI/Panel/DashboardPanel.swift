@@ -17,6 +17,8 @@ final class DashboardPanelController {
     private var cancellables: Set<AnyCancellable> = []
 
     var isVisible: Bool { panel.isVisible }
+    /// Called each time the panel opens, e.g. to apply the chosen appearance.
+    var onShow: () -> Void = {}
     var window: NSWindow { panel }
 
     init(model: AppModel, openSettings: @escaping () -> Void) {
@@ -77,6 +79,7 @@ final class DashboardPanelController {
     }
 
     func show(tab: DashboardTab, anchor: NSPoint) {
+        onShow()
         state.tab = tab
         state.visible = true
         self.anchor = anchor

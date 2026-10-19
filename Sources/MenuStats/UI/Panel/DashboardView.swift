@@ -90,7 +90,7 @@ struct DashboardContent: View {
                 Button { state.tab = tab } label: {
                     VStack(spacing: 3) {
                         Image(systemName: tab.symbol).font(.system(size: 13, weight: .medium)).frame(height: 16)
-                            .foregroundStyle(alert.color ?? (selected ? Color.primary : Color.secondary))
+                            .foregroundStyle(alert.color ?? model.settings.customColor(for: tab) ?? (selected ? Color.primary : Color.secondary))
                         Text(tab.title).font(.system(size: 9.5, weight: selected ? .semibold : .regular))
                     }
                     .frame(maxWidth: .infinity)
@@ -128,6 +128,7 @@ struct DashboardContent: View {
     }
 
     @ViewBuilder private var content: some View {
+        let _ = Palette.override = model.settings.customColor(for: state.tab).map { (state.tab.primaryColorIndex, $0) }
         switch state.tab {
         case .cpu: CPUTab(model: model)
         case .memory: MemoryTab(model: model)
@@ -138,6 +139,7 @@ struct DashboardContent: View {
         case .weather: WeatherTab(weather: model.weather, openSettings: openSettings)
         case .date: DateTab(weather: model.weather)
         case .awake: AwakeTab(model: model)
+        case .map: MapTab()
         }
     }
 
@@ -145,6 +147,18 @@ struct DashboardContent: View {
         HStack(spacing: 12) {
             Button { SystemActions.openActivityMonitor() } label: { Label("Monitoraggio Attività", systemImage: "chart.bar.xaxis") }
             Spacer()
+            Menu {
+                Picker("Aspetto", selection: Binding(get: { model.settings.appearanceMode }, set: { model.settings.appearanceMode = $0 })) {
+                    ForEach(AppearanceMode.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: model.settings.appearanceMode.symbol)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Aspetto: chiaro, scuro, normale o automatico")
             Button(action: openSettings) { Image(systemName: "gearshape") }.help("Impostazioni…")
             Button(action: quit) { Image(systemName: "power") }.help("Esci da MenuStats")
         }

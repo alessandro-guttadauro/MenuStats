@@ -74,7 +74,8 @@ final class StatusBarController: NSObject {
     }
 
     private var structure: [[ModuleID]] {
-        let modules = settings.visibleModules
+        var modules = settings.visibleModules
+        if settings.compactMenubar { modules = Array(modules.prefix(max(settings.compactModuleCount, 1))) }
         return settings.layout == .combined ? [modules] : modules.map { [$0] }
     }
 
@@ -99,9 +100,11 @@ final class StatusBarController: NSObject {
     }
 
     private func render() {
+        var options = MenubarOptions(settings)
+        if settings.compactMenubar { options.showLabels = false }
         let context = MenubarRenderer.Context(
             snapshot: model.snapshot,
-            options: MenubarOptions(settings),
+            options: options,
             recent: { [weak model] metric, count in model?.recentValues(metric, count: count) ?? [] },
             fanAngle: fanAngle,
             steamPhase: steamPhase,
