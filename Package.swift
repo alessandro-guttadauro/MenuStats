@@ -13,24 +13,9 @@ let package = Package(
         ),
         // XPC interface shared by the app and its privileged helper.
         .target(name: "MenuStatsShared", path: "Sources/MenuStatsShared"),
-        // Widget data model and SwiftUI views, shared by the desktop widgets and the dropdown's Widget tab.
-        .target(
-            name: "MenuStatsWidgetUI",
-            path: "Sources/MenuStatsWidgetUI",
-            swiftSettings: [.unsafeFlags(["-application-extension"])]
-        ),
-        // WidgetKit extension (packaged by build-app.sh as Contents/PlugIns/MenuStatsWidgets.appex).
-        .executableTarget(
-            name: "MenuStatsWidgets",
-            dependencies: ["MenuStatsWidgetUI"],
-            path: "Sources/MenuStatsWidgets",
-            swiftSettings: [.unsafeFlags(["-application-extension", "-parse-as-library"])],
-            linkerSettings: [
-                .linkedFramework("WidgetKit"),
-                .linkedFramework("SwiftUI"),
-                .unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain", "-Xlinker", "-application_extension"]),
-            ]
-        ),
+        // Widget data model and SwiftUI views, shared by the app (Settings previews, data export) and the
+        // WidgetKit extension in Sources/MenuStatsWidgets, which build-app.sh compiles with swiftc for macOS 14.
+        .target(name: "MenuStatsWidgetUI", path: "Sources/MenuStatsWidgetUI"),
         .executableTarget(
             name: "MenuStats",
             dependencies: ["CIOKitPrivate", "MenuStatsShared", "MenuStatsWidgetUI"],
@@ -51,6 +36,11 @@ let package = Package(
             dependencies: ["CIOKitPrivate", "MenuStatsShared"],
             path: "Sources/MenuStatsHelper",
             linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("Security")]
+        ),
+        .testTarget(
+            name: "MenuStatsTests",
+            dependencies: ["MenuStats", "MenuStatsWidgetUI"],
+            path: "Tests/MenuStatsTests"
         ),
     ]
 )

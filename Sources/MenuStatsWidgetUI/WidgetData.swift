@@ -137,19 +137,19 @@ public struct WidgetData: Codable, Equatable {
         URL(fileURLWithPath: home + "/Library/Application Support/MenuStats/widget.json")
     }
 
-    public static func load() -> WidgetData? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+    public static func load(from url: URL = fileURL) -> WidgetData? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         return try? decoder.decode(WidgetData.self, from: data)
     }
 
-    public func save() {
+    public func save(to url: URL = fileURL) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
         guard let data = try? encoder.encode(self) else { return }
-        try? FileManager.default.createDirectory(at: Self.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: Self.fileURL, options: .atomic)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
     }
 
     /// Realistic sample for the widget gallery and previews.

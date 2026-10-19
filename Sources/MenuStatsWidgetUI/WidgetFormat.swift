@@ -85,3 +85,18 @@ public enum WidgetPalette {
     static let download = blue
     static let upload = orange
 }
+
+/// Desktop widget geometry on macOS, so previews match the real widgets.
+public enum WidgetMetrics {
+    /// Space between the widget's edge and its content.
+    public static let margin: CGFloat = 16
+    public static let cornerRadius: CGFloat = 22
+
+    public static func size(_ size: WidgetSize) -> CGSize {
+        switch size {
+        case .small: CGSize(width: 170, height: 170)
+        case .medium: CGSize(width: 364, height: 170)
+        case .large: CGSize(width: 364, height: 382)
+        }
+    }
+}

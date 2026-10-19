@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateItem = UpdateStatusItem(updater: model.updater) { [weak self] in self?.settingsWindow.show() }
         model.start()
         model.updater.start()
+        if CommandLine.arguments.contains("--install-update") { model.updater.installWhenAvailable() }
 
         if let flag = CommandLine.arguments.firstIndex(of: "--self-test"), flag + 1 < CommandLine.arguments.count {
             SelfTest.run(statusBar: statusBar, panel: panel, output: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))

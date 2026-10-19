@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CryptoKit
 import Foundation
 
@@ -109,7 +110,7 @@ final class Updater: ObservableObject {
         }.resume()
     }
 
-    private static func parse(_ data: Data) -> Release? {
+    static func parse(_ data: Data) -> Release? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String,
               json["draft"] as? Bool != true, json["prerelease"] as? Bool != true,
@@ -135,6 +136,22 @@ final class Updater: ObservableObject {
     }
 
     // MARK: - Download and install
+
+    /// `--install-update`: checks and installs without any click (used to test the whole update path).
+    func installWhenAvailable() {
+        check(userInitiated: true)
+        var observer: AnyCancellable?
+        observer = $state.sink { [weak self] state in
+            switch state {
+            case .available: DispatchQueue.main.async { self?.installUpdate() }
+            case .upToDate, .failed: NSLog("MenuStats: aggiornamento non installato (\(state))"); observer?.cancel()
+            default: break
+            }
+        }
+        self.observer = observer
+    }
+
+    private var observer: AnyCancellable?
 
     func installUpdate() {
         guard let release = latest, updateAvailable, Self.canInstall else { return }
@@ -187,7 +204,7 @@ final class Updater: ObservableObject {
     struct Failure: Error { var message: String }
 
     /// Verifies the archive and unpacks the new app next to it. Runs off the main thread.
-    private static func prepare(archive: URL, release: Release) -> Result<URL, Failure> {
+    static func prepare(archive: URL, release: Release) -> Result<URL, Failure> {
         defer { try? FileManager.default.removeItem(at: archive) }
         if let digest = release.digest, digest.hasPrefix("sha256:") {
             guard let data = try? Data(contentsOf: archive, options: .mappedIfSafe) else { return .failure(Failure(message: "Archivio illeggibile.")) }

@@ -39,7 +39,7 @@ meteo e data. Compatto, preciso e leggero.
   stessa che mostra iStat Menus.
 - **Leggero davvero**: circa l'1% di un core a riposo. Legge spesso solo ciò che stai guardando.
 - **Tuo**: stile per ogni modulo, colori, ordine, sezioni della tendina da mostrare o nascondere.
-- **Widget**: sulla scrivania, nel Centro Notifiche e in una scheda della tendina. Un elemento alla volta o la
+- **Widget**: sulla scrivania e nel Centro Notifiche, anche con l'app chiusa. Un elemento alla volta o la
   panoramica di tutto, in formato piccolo, medio o grande.
 - **Si aggiorna da solo**: quando esce una nuova versione compare un'icona nella barra dei menu; un clic e
   MenuStats si scarica, si verifica e si reinstalla, senza comandi e senza un nuovo "Apri comunque".
@@ -81,9 +81,8 @@ Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggi
 
 Ogni elemento ha il suo widget, e la **Panoramica** li mette tutti insieme. Fai clic destro sulla scrivania ▸
 **Modifica widget…** e cerca *MenuStats*: CPU, Memoria, Disco, Rete, Temperature, Ventole, Batteria e Meteo in
-formato piccolo o medio, la Panoramica anche grande. Gli stessi widget, con i dati in tempo reale, stanno nella
-scheda **Widget** della tendina: scegli quali, in che ordine e di che dimensione (clic destro su un widget, oppure
-Impostazioni ▸ Widget).
+formato piccolo o medio, la Panoramica anche grande. In Impostazioni ▸ **Widget** trovi l'anteprima di ognuno con i
+tuoi dati.
 
 <p align="center"><img src="docs/screenshots/widgets.png" alt="Tutti i widget di MenuStats sulla scrivania" width="100%"></p>
 
@@ -91,19 +90,20 @@ Impostazioni ▸ Widget).
 <summary><b>Come funzionano</b></summary>
 <br>
 
-- I widget della scrivania sono un'estensione WidgetKit sandbox. MenuStats scrive ogni minuto un piccolo file
-  JSON in `~/Library/Application Support/MenuStats/widget.json` (solo se c'è almeno un widget sulla scrivania) e
-  l'estensione può leggere solo quella cartella.
-- macOS limita quante volte un widget si ridisegna: i widget si aggiornano ogni pochi minuti e mostrano l'ora
-  dei dati. Con ⚠︎ i dati sono vecchi, perché MenuStats è chiuso o il Mac dormiva.
-- Nella tendina i widget si aggiornano a ogni campione, come il resto dell'app.
+- Sono un'estensione WidgetKit in Swift e SwiftUI, in sandbox. A ogni aggiornamento legge da sola CPU, memoria,
+  disco, rete, batteria, temperature e ventole (SMC), quindi **funziona anche con MenuStats chiuso**.
+- Con MenuStats aperto aggiunge i grafici dell'ultima ora, la salute ufficiale della batteria e il meteo, che
+  l'app scrive ogni minuto in `~/Library/Application Support/MenuStats/widget.json`. È l'unica cartella che
+  l'estensione può leggere. Ad app chiusa i grafici usano le letture dei widget stessi.
+- macOS decide quante volte ridisegnare un widget, di solito ogni 5-15 minuti. L'ora in alto a destra dice quando
+  sono stati letti i dati.
 
 </details>
 
 ## 🔄 Aggiornamenti
 
-Ogni push su `main` (commit diretti e pull request unite) pubblica da solo una nuova
-[release](https://github.com/thomas-addamo/MenuStats/releases) con GitHub Actions. MenuStats la trova (controllo
+Ogni push su `main` che cambia l'app (commit diretti e pull request unite) pubblica da solo una nuova
+[release](https://github.com/thomas-addamo/MenuStats/releases) con GitHub Actions, dopo aver superato i test. MenuStats la trova (controllo
 ogni 6 ore, o *Controlla ora*) e mostra un'icona ⬇︎ nella barra dei menu che apre Impostazioni ▸ Aggiornamenti.
 *Scarica e installa*:
 
@@ -263,6 +263,7 @@ git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
 
 | Comando | A cosa serve |
 |---|---|
+| `./scripts/test.sh` | test unitari, campionatore dei widget confrontato con macOS, versioni delle release |
 | `swift run MenuStats --verify` | confronta i valori con gli strumenti di macOS |
 | `swift run MenuStats --dump` | stampa una lettura di tutto |
 | `swift run -c release MenuStats --benchmark` | costo di ogni lettore e del disegno |
@@ -272,7 +273,8 @@ git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
 
 ## 🤝 Contribuire
 
-Le pull request sono benvenute. Prima di aprirne una: `swift build` senza avvisi, `--verify` a 18/18 e, per le
+Le pull request sono benvenute. Prima di aprirne una: `swift build` senza avvisi, `./scripts/test.sh` verde,
+`--verify` a 18/18 e, per le
 modifiche visive, uno sguardo a `--render-ui`. Quando una pull request viene unita parte da sola una nuova release
 (versione patch; scrivi `[minor]` o `[major]` in un commit per alzare quelle, `[skip release]` per non pubblicare).
 Grazie a chi ha già contribuito:

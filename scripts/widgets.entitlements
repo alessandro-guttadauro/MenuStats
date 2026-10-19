@@ -3,9 +3,12 @@
 <plist version="1.0">
 <dict>
     <!-- Widget extensions must be sandboxed. App Groups need a Team ID, so the widgets read MenuStats'
-         snapshot through a read-only exception limited to its own folder. -->
+         snapshot through a read-only exception limited to its own folder, and the SMC (temperatures, fans)
+         through a user-client exception. -->
     <key>com.apple.security.app-sandbox</key><true/>
     <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
     <array><string>/Library/Application Support/MenuStats/</string></array>
+    <key>com.apple.security.temporary-exception.iokit-user-client-class</key>
+    <array><string>AppleSMCClient</string></array>
 </dict>
 </plist>

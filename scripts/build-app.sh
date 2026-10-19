@@ -5,7 +5,6 @@ cd "$(dirname "$0")/.."
 
 swift build -c release --product MenuStats
 swift build -c release --product MenuStatsHelper
-swift build -c release --product MenuStatsWidgets
 APP=build/MenuStats.app
 # Version: VERSION=… or the latest git tag (v1.2.3 → 1.2.3), so local installs show the real version.
 VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
@@ -20,9 +19,18 @@ cp .build/release/MenuStatsHelper "$APP/Contents/MacOS/MenuStatsHelper"
 
 # Desktop widgets: WidgetKit extension, sandboxed, reading only ~/Library/Application Support/MenuStats/.
 APPEX="$APP/Contents/PlugIns/MenuStatsWidgets.appex"
-mkdir -p "$APPEX/Contents/MacOS"
-cp .build/release/MenuStatsWidgets "$APPEX/Contents/MacOS/MenuStatsWidgets"
+# Built with swiftc rather than SwiftPM: widgets need macOS 14 (the app supports 13) and the extension entry point.
+# One module: the shared widget sources, the extension, and the SMC shim for temperatures and fans.
+mkdir -p "$APPEX/Contents/MacOS" build/widgets
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+xcrun clang -c -O2 -target arm64-apple-macos14.0 -isysroot "$SDK_PATH" -I Sources/CIOKitPrivate/include \
+    Sources/CIOKitPrivate/shim.c -o build/widgets/shim.o
+xcrun swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK_PATH" -parse-as-library -application-extension \
+    -module-name MenuStatsWidgets -import-objc-header Sources/CIOKitPrivate/include/CIOKitPrivate.h \
+    Sources/MenuStatsWidgetUI/*.swift Sources/MenuStatsWidgets/*.swift build/widgets/shim.o \
+    -framework WidgetKit -framework SwiftUI -framework IOKit \
+    -Xlinker -e -Xlinker _NSExtensionMain -o "$APPEX/Contents/MacOS/MenuStatsWidgets"
 cat > "$APPEX/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

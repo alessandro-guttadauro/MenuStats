@@ -49,8 +49,9 @@ extension AppModel {
     }
 }
 
-/// Keeps the desktop widgets fed: writes the snapshot file every minute and asks WidgetKit to reload them,
-/// but only while at least one MenuStats widget is on the desktop (otherwise it does nothing).
+/// Adds what the widget extension can't read by itself (per-minute history, Apple's battery health, weather):
+/// writes a small JSON file every minute and asks WidgetKit to redraw now and then. The widgets work without it,
+/// reading the live values themselves, so they keep going while MenuStats is closed.
 final class WidgetBridge {
     static let exportInterval: TimeInterval = 60
     /// WidgetKit budgets reloads; one every few minutes keeps the widgets current without running out.
@@ -59,8 +60,6 @@ final class WidgetBridge {
     private unowned let model: AppModel
     private var lastExport = Date.distantPast
     private var lastReload = Date.distantPast
-    private var installedKinds: Set<String> = []
-    private var lastConfigurationCheck = Date.distantPast
 
     init(model: AppModel) { self.model = model }
 
@@ -68,14 +67,13 @@ final class WidgetBridge {
         (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "Macintosh HD"
     }()
 
-    /// Called on every sample; cheap unless a minute has passed.
+    /// Called on every sample; does nothing until a minute has passed.
     func tick(now: Date = Date()) {
-        if now.timeIntervalSince(lastConfigurationCheck) > 10 * 60 { refreshInstalledWidgets(now: now) }
-        guard !installedKinds.isEmpty, now.timeIntervalSince(lastExport) >= Self.exportInterval else { return }
+        guard now.timeIntervalSince(lastExport) >= Self.exportInterval else { return }
         export(now: now)
     }
 
-    /// Writes right away and reloads the widgets (after a settings change, or at launch).
+    /// Writes right away and redraws the widgets (from Settings ▸ Widget).
     func exportNow() {
         export(now: Date(), forceReload: true)
     }
@@ -83,21 +81,9 @@ final class WidgetBridge {
     private func export(now: Date, forceReload: Bool = false) {
         lastExport = now
         model.widgetData(minutes: true).save()
+        // The first export after launch also redraws, so widgets left stale while the app was closed catch up.
         guard forceReload || now.timeIntervalSince(lastReload) >= Self.reloadInterval else { return }
         lastReload = now
         WidgetCenter.shared.reloadAllTimelines()
-    }
-
-    private func refreshInstalledWidgets(now: Date) {
-        lastConfigurationCheck = now
-        WidgetCenter.shared.getCurrentConfigurations { [weak self] result in
-            let kinds = Set((try? result.get())?.map(\.kind) ?? [])
-            DispatchQueue.main.async {
-                guard let self else { return }
-                let added = !kinds.subtracting(self.installedKinds).isEmpty
-                self.installedKinds = kinds
-                if added { self.exportNow() }
-            }
-        }
     }
 }

@@ -37,7 +37,7 @@ enum UITestRenderer {
             renderWidgetGallery(model: model, dark: dark, to: directory.appendingPathComponent("widgets-\(dark ? "dark" : "light").png"))
         }
         let pages: [(String, AnyView)] = [
-            ("widgets", AnyView(WidgetSettings(model: model, settings: settings))),
+            ("widgets", AnyView(WidgetSettings(model: model))),
             ("updates", AnyView(UpdateSettings(updater: model.updater))),
             ("general", AnyView(GeneralSettings(settings: settings))),
             ("menubar", AnyView(MenubarSettings(model: model, snapshot: model.snapshot, settings: settings))),
@@ -54,21 +54,11 @@ enum UITestRenderer {
 
     /// Every desktop widget (each element, each size) at its real macOS size on a wallpaper-like gradient.
     private static func renderWidgetGallery(model: AppModel, dark: Bool, to url: URL) {
-        model.setVisibleTab(.widgets)
+        model.setVisibleTab(nil)
         model.tick()
         let data = model.widgetData(minutes: true, forceWeather: true)
         func tile(_ element: WidgetElement, _ size: WidgetSize) -> some View {
-            let frame: CGSize = switch size {
-            case .small: CGSize(width: 170, height: 170)
-            case .medium: CGSize(width: 364, height: 170)
-            case .large: CGSize(width: 364, height: 382)
-            }
-            return MenuStatsWidgetView(element: element, size: size, data: data)
-                .padding(16)
-                .frame(width: frame.width, height: frame.height)
-                .background(WidgetBackground(element: element))
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+            WidgetPreviewTile(element: element, size: size, data: data)
         }
         let singles = WidgetElement.allCases.filter { $0 != .overview }
         let view = HStack(alignment: .top, spacing: 24) {

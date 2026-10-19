@@ -95,7 +95,7 @@ struct SettingsView: View {
         case .general: GeneralSettings(settings: settings)
         case .menubar: MenubarSettings(model: model, snapshot: feed.snapshot, settings: settings)
         case .module(let module): ModuleSettings(module: module, model: model, snapshot: feed.snapshot, settings: settings)
-        case .widgets: WidgetSettings(model: model, settings: settings)
+        case .widgets: WidgetSettings(model: model)
         case .updates: UpdateSettings(updater: model.updater)
         case .notifications: NotificationSettings(settings: settings)
         case .about: AboutSettings(model: model)
