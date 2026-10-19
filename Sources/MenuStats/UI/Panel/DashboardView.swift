@@ -82,27 +82,58 @@ struct DashboardContent: View {
         .frame(width: Self.width)
     }
 
+    /// Room for one tab with its label under the icon. With more tabs than fit, the bar switches to icons only and
+    /// the selected tab shows its name beside the icon, so labels never shrink or wrap.
+    private static let labeledTabWidth: CGFloat = 54
+
     private var tabBar: some View {
-        HStack(spacing: 2) {
-            ForEach(visibleTabs) { tab in
+        let tabs = visibleTabs
+        let compact = CGFloat(tabs.count) * Self.labeledTabWidth > Self.width - 20
+        return HStack(spacing: 2) {
+            ForEach(tabs) { tab in
                 let selected = state.tab == tab
-                let alert = severity(of: tab)
-                Button { state.tab = tab } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: tab.symbol).font(.system(size: 13, weight: .medium)).frame(height: 16)
-                            .foregroundStyle(alert.color ?? model.settings.customColor(for: tab) ?? (selected ? Color.primary : Color.secondary))
-                        Text(tab.title).font(.system(size: 9.5, weight: selected ? .semibold : .regular))
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { state.tab = tab }
+                } label: {
+                    Group {
+                        if compact {
+                            HStack(spacing: 5) {
+                                tabIcon(tab, selected: selected)
+                                if selected { tabLabel(tab, selected: true, size: 11).fixedSize() }
+                            }
+                            .padding(.horizontal, selected ? 9 : 0)
+                            .frame(height: 30)
+                            .frame(maxWidth: selected ? nil : .infinity)
+                        } else {
+                            VStack(spacing: 3) {
+                                tabIcon(tab, selected: selected)
+                                tabLabel(tab, selected: selected)
+                            }
+                            .padding(.vertical, 5)
+                            .frame(maxWidth: .infinity)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
                     .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(selected ? Color.primary.opacity(0.09) : Color.clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help(tab.title)
             }
         }
+    }
+
+    private func tabIcon(_ tab: DashboardTab, selected: Bool) -> some View {
+        Image(systemName: tab.symbol).font(.system(size: 13, weight: .medium)).frame(height: 16)
+            .foregroundStyle(severity(of: tab).color ?? model.settings.customColor(for: tab) ?? (selected ? Color.primary : Color.secondary))
+    }
+
+    private func tabLabel(_ tab: DashboardTab, selected: Bool, size: CGFloat = 9.5) -> some View {
+        Text(tab.title)
+            .font(.system(size: size, weight: selected ? .semibold : .regular))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
     }
 
     /// System tabs always; Weather and Date only while their module is enabled.

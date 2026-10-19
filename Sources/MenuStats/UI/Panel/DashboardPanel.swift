@@ -45,9 +45,11 @@ final class DashboardPanelController {
         background.material = .popover
         background.state = .active
         background.blendingMode = .behindWindow
+        // The mask image rounds the material itself, so the window's shadow follows the corners too: a layer
+        // corner radius alone clips the content but leaves the shadow (and a pale square) at the corners.
+        background.maskImage = Self.roundedMask(radius: Self.cornerRadius)
         background.wantsLayer = true
-        background.layer?.cornerRadius = 12
-        background.layer?.cornerCurve = .continuous
+        background.layer?.cornerRadius = Self.cornerRadius
         background.layer?.masksToBounds = true
         hosting.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(hosting)
@@ -67,6 +69,21 @@ final class DashboardPanelController {
             .receive(on: RunLoop.main)
             .sink { [weak model] tab in model?.setVisibleTab(tab) }
             .store(in: &cancellables)
+    }
+
+    static let cornerRadius: CGFloat = 12
+
+    /// Stretchable rounded rectangle for NSVisualEffectView.maskImage.
+    private static func roundedMask(radius: CGFloat) -> NSImage {
+        let edge = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
     }
 
     /// `anchor` is the bottom-center of the clicked segment, in screen coordinates.
@@ -115,6 +132,7 @@ final class DashboardPanelController {
         x = min(max(x, visible.minX + 6), visible.maxX - size.width - 6)
         let y = anchor.y - 6 - size.height
         panel.setFrame(NSRect(x: x, y: max(y, visible.minY + 6), width: size.width, height: size.height), display: true)
+        panel.invalidateShadow()
     }
 
     private func installMonitors() {

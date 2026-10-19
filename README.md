@@ -41,6 +41,8 @@ meteo, data e un modulo per tenere il Mac sveglio. Compatto, preciso e leggero.
 - **Valori verificati**: `--verify` confronta 18 valori con gli strumenti di macOS. La temperatura CPU è la
   stessa che mostra iStat Menus.
 - **Leggero davvero**: circa l'1% di un core a riposo. Legge spesso solo ciò che stai guardando.
+- **Sempre visibile, anche col notch**: MenuStats resta accanto all'orologio, così sono le altre icone a finire
+  dietro la freccia di macOS. Se lo spazio non basta comunque, toglie le etichette e gli ultimi moduli finché ci sta.
 - **Tuo**: stile per ogni modulo, colori, ordine, sezioni della tendina da mostrare o nascondere.
 - **Widget**: memoria, disco, batteria e meteo sulla scrivania e nel Centro Notifiche, anche con l'app chiusa.
 - **Si aggiorna da solo**: quando esce una nuova versione compare un'icona nella barra dei menu; un clic e

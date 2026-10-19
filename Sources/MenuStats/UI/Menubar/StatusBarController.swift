@@ -32,6 +32,7 @@ final class StatusBarController: NSObject {
         self.panel = panel
         self.openSettings = openSettings
         super.init()
+        observeRoom()
 
         model.$snapshot.receive(on: RunLoop.main).sink { [weak self] _ in
             self?.render()
@@ -40,6 +41,7 @@ final class StatusBarController: NSObject {
 
         // objectWillChange fires before the new value is stored; rebuild on the next run loop pass.
         settings.objectWillChange.debounce(for: .milliseconds(30), scheduler: RunLoop.main).sink { [weak self] _ in
+            self?.fitLevel = 0
             self?.rebuild()
         }.store(in: &cancellables)
 
@@ -76,17 +78,95 @@ final class StatusBarController: NSObject {
     private var structure: [[ModuleID]] {
         var modules = settings.visibleModules
         if settings.compactMenubar { modules = Array(modules.prefix(max(settings.compactModuleCount, 1))) }
+        // Automatic fit: level 1 drops the labels, each further level one more module from the end.
+        if fitLevel >= 2 { modules = Array(modules.prefix(max(modules.count - (fitLevel - 1), 1))) }
         return settings.layout == .combined ? [modules] : modules.map { [$0] }
+    }
+
+    // MARK: - Room in the menu bar
+
+    /// How much MenuStats is shrunk to stay visible (0 = as configured). Reset when space may have freed up.
+    private var fitLevel = 0
+    private var pinApplied: Bool?
+    private var fitCheck: DispatchWorkItem?
+
+    private var maxFitLevel: Int { max(settings.visibleModules.count, 1) }
+
+    /// macOS places items with a smaller preferred position closer to the clock. Written before each item is
+    /// created, so MenuStats stays at the right end and other apps' icons overflow first.
+    private func pin(_ autosaveName: String, rank: Int) {
+        guard settings.pinNearClock else { return }
+        UserDefaults.standard.set(Double(rank + 1), forKey: "NSStatusItem Preferred Position \(autosaveName)")
+    }
+
+    /// True when macOS isn't showing the item: behind the notch, pushed off screen or into the overflow.
+    private func isHidden(_ item: NSStatusItem) -> Bool {
+        guard let window = item.button?.window else { return false }
+        guard window.isVisible, window.occlusionState.contains(.visible) else { return true }
+        let frame = window.frame
+        guard let screen = window.screen ?? NSScreen.screens.first(where: { $0.frame.intersects(frame) }) else { return true }
+        if frame.maxX <= screen.frame.minX || frame.minX >= screen.frame.maxX { return true }
+        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
+           frame.maxX > left.maxX + 1, frame.minX < right.minX - 1 { return true }
+        return false
+    }
+
+    private func scheduleFitCheck(after delay: Double = 0.6) {
+        fitCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.checkFit() }
+        fitCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func checkFit() {
+        guard settings.autoFitMenubar, !entries.isEmpty else { return }
+        let hidden = entries.contains { isHidden($0.item) }
+        if ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil {
+            NSLog("MENUSTATS spazio: livello \(fitLevel), nascosto \(hidden), finestre \(entries.map { $0.item.button?.window?.frame ?? .zero })")
+        }
+        guard hidden, fitLevel < maxFitLevel else { return }
+        fitLevel += 1
+        rebuild()
+    }
+
+    /// Something that changes the room in the menu bar happened: start again from the full bar.
+    private func resetFit() {
+        guard fitLevel > 0 else { scheduleFitCheck(); return }
+        fitLevel = 0
+        rebuild()
+    }
+
+    private func observeRoom() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
+                     NSWorkspace.activeSpaceDidChangeNotification] {
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // Apps add or remove their icons a moment after launching or quitting.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self?.resetFit() }
+            }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                               queue: .main) { [weak self] _ in self?.resetFit() }
+        NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil,
+                                               queue: .main) { [weak self] note in
+            guard let self, let window = note.object as? NSWindow,
+                  entries.contains(where: { $0.item.button?.window === window }) else { return }
+            scheduleFitCheck(after: 0.3)
+        }
     }
 
     private func rebuild() {
         let wanted = structure
-        if wanted != entries.map(\.modules) {
+        // Turning "next to the clock" on recreates the items, since macOS reads the position only when one is created.
+        if wanted != entries.map(\.modules) || (settings.pinNearClock && pinApplied != true) {
+            pinApplied = settings.pinNearClock
             entries.forEach { NSStatusBar.system.removeStatusItem($0.item) }
             // New status items appear to the left of older ones, so create them right-to-left.
-            entries = wanted.reversed().map { modules in
+            entries = wanted.reversed().enumerated().map { rank, modules in
+                let name = "MenuStats." + (wanted.count == 1 ? "combined" : modules[0].rawValue)
+                pin(name, rank: rank)
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-                item.autosaveName = "MenuStats." + (wanted.count == 1 ? "combined" : modules[0].rawValue)
+                item.autosaveName = name
                 item.button?.target = self
                 item.button?.action = #selector(clicked(_:))
                 item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -97,11 +177,12 @@ final class StatusBarController: NSObject {
         render()
         updateAnimation()
         updateClock()
+        scheduleFitCheck()
     }
 
     private func render() {
         var options = MenubarOptions(settings)
-        if settings.compactMenubar { options.showLabels = false }
+        if settings.compactMenubar || fitLevel >= 1 { options.showLabels = false }
         let context = MenubarRenderer.Context(
             snapshot: model.snapshot,
             options: options,
@@ -128,7 +209,10 @@ final class StatusBarController: NSObject {
             // Exact width instead of variableLength (which pads both sides). Only when it changes:
             // every length change makes macOS re-layout the whole menu bar.
             let length = ceil(rendered.image.size.width) + 2
-            if abs(entries[index].item.length - length) > 0.5 { entries[index].item.length = length }
+            if abs(entries[index].item.length - length) > 0.5 {
+                entries[index].item.length = length
+                scheduleFitCheck() // a wider value can push MenuStats out of the bar
+            }
             entries[index].hitRanges = rendered.hitRanges
             entries[index].imageWidth = rendered.image.size.width
         }

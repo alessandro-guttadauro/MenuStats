@@ -1,28 +1,15 @@
 {
   "fill" : {
-    "automatic-gradient" : "extended-srgb:0.09000,0.14000,0.42000,1.00000"
+    "automatic-gradient" : "extended-srgb:0.92000,0.95000,1.00000,1.00000"
   },
   "groups" : [
     {
       "layers" : [
-        { "glass" : true, "image-name" : "anello.svg", "name" : "Anello" }
+        { "glass" : true, "image-name" : "logo-m.png", "name" : "M" }
       ],
-      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
-      "translucency" : { "enabled" : true, "value" : 0.15 }
-    },
-    {
-      "layers" : [
-        { "glass" : true, "image-name" : "barre.svg", "name" : "Barre" }
-      ],
-      "shadow" : { "kind" : "layer-color", "opacity" : 0.6 },
-      "translucency" : { "enabled" : true, "value" : 0.25 }
-    },
-    {
-      "layers" : [
-        { "glass" : true, "image-name" : "disco.svg", "name" : "Disco" }
-      ],
-      "shadow" : { "kind" : "neutral", "opacity" : 0.3 },
-      "translucency" : { "enabled" : true, "value" : 0.6 }
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.5 },
+      "specular" : true,
+      "translucency" : { "enabled" : true, "value" : 0.1 }
     }
   ],
   "supported-platforms" : {

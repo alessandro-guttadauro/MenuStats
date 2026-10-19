@@ -291,8 +291,11 @@ struct MenubarSettings: View {
             SettingsSection(title: "Anteprima") {
                 MenubarPreview(image: MenubarRenderer.image(for: settings.visibleModules, context: context).image, vertical: true)
             }
-            SettingsSection(title: "Barra compatta", footnote: "Su macOS 27, quando accanto al notch non c'è spazio, le icone finiscono dietro la freccia «. La barra compatta toglie le etichette e mostra solo i primi moduli dell'elenco qui sotto, così occupa meno spazio. Gli altri restano nelle schede della tendina. È macOS a decidere cosa nascondere: se non basta, trascina le icone con ⌘ a destra della freccia.") {
-                Toggle("Barra compatta (consigliata con il notch)", isOn: $settings.compactMenubar)
+            SettingsSection(title: "Spazio nella barra", footnote: "Su macOS 27, quando accanto al notch non c'è spazio, macOS raccoglie le icone dietro la freccia «, partendo da quelle più lontane dall'orologio. Tenendo MenuStats accanto all'orologio sono le icone delle altre app a finire dietro la freccia. Se lo spazio non basta comunque, MenuStats toglie prima le etichette e poi gli ultimi moduli dell'elenco qui sotto, e torna completo appena lo spazio si libera.") {
+                Toggle("Tieni MenuStats accanto all'orologio", isOn: $settings.pinNearClock)
+                Toggle("Riduci automaticamente quando lo spazio non basta", isOn: $settings.autoFitMenubar)
+                Divider()
+                Toggle("Barra compatta sempre attiva", isOn: $settings.compactMenubar)
                 Stepper("Moduli mostrati: \(settings.compactModuleCount)", value: $settings.compactModuleCount, in: 1...6)
                     .disabled(!settings.compactMenubar)
             }

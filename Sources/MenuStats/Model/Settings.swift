@@ -316,6 +316,10 @@ final class Settings: ObservableObject {
     /// Narrow menu bar (no labels, only the first modules), so macOS 27 is less likely to hide it next to the notch.
     @Published var compactMenubar: Bool { didSet { save(compactMenubar, "compactMenubar") } }
     @Published var compactModuleCount: Int { didSet { save(compactModuleCount, "compactModuleCount") } }
+    /// Keeps MenuStats next to the clock, so other apps' icons are the ones macOS hides when the bar is full.
+    @Published var pinNearClock: Bool { didSet { save(pinNearClock, "pinNearClock") } }
+    /// When macOS hides MenuStats anyway (notch, full bar), drops labels and then the last modules until it fits.
+    @Published var autoFitMenubar: Bool { didSet { save(autoFitMenubar, "autoFitMenubar") } }
 
     // Menu bar modules
     @Published var moduleOrder: [ModuleID] { didSet { save(moduleOrder.map(\.rawValue), "moduleOrder") } }
@@ -409,6 +413,8 @@ final class Settings: ObservableObject {
         tabColors = Dictionary(uniqueKeysWithValues: savedTabColors.compactMap { key, value in DashboardTab(rawValue: key).map { ($0, value) } })
         compactMenubar = bool("compactMenubar", false)
         compactModuleCount = defaults.object(forKey: "compactModuleCount") as? Int ?? 3
+        pinNearClock = bool("pinNearClock", true)
+        autoFitMenubar = bool("autoFitMenubar", true)
 
         let savedOrder = (defaults.stringArray(forKey: "moduleOrder") ?? []).compactMap(ModuleID.init(rawValue:))
         moduleOrder = (savedOrder + ModuleID.allCases.filter { !savedOrder.contains($0) }).filter(\.isAvailable)
