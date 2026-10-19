@@ -64,7 +64,7 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
 }
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case cpu, memory, disk, network, sensors, battery, weather, date, awake
+    case cpu, memory, disk, network, sensors, battery, weather, date, awake, map
     var id: String { rawValue }
 
     var title: String {
@@ -78,6 +78,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .weather: "Meteo"
         case .date: "Data"
         case .awake: "Sveglio"
+        case .map: "Mappa"
         }
     }
 
@@ -92,6 +93,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .weather: "cloud.sun"
         case .date: "calendar"
         case .awake: "cup.and.saucer"
+        case .map: "map"
         }
     }
 
@@ -170,7 +172,7 @@ enum PanelSection: String, CaseIterable, Identifiable, Codable {
         case .network: .network
         case .sensors: self == .sensorsFans ? .fans : .sensors
         case .battery: .battery
-        case .weather: .weather
+        case .weather, .map: .weather // no section lives in the Map tab
         case .date: .date
         case .awake: .awake
         }

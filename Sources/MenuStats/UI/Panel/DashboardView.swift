@@ -138,6 +138,7 @@ struct DashboardContent: View {
         case .weather: WeatherTab(weather: model.weather, openSettings: openSettings)
         case .date: DateTab(weather: model.weather)
         case .awake: AwakeTab(model: model)
+        case .map: MapTab()
         }
     }
 
