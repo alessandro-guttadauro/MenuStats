@@ -41,6 +41,7 @@ final class StatusBarController: NSObject {
 
         // objectWillChange fires before the new value is stored; rebuild on the next run loop pass.
         settings.objectWillChange.debounce(for: .milliseconds(30), scheduler: RunLoop.main).sink { [weak self] _ in
+            self?.debug("impostazioni cambiate: livello \(self?.fitLevel ?? -1) -> 0")
             self?.fitLevel = 0
             self?.rebuild()
         }.store(in: &cancellables)
@@ -87,6 +88,12 @@ final class StatusBarController: NSObject {
 
     /// How much MenuStats is shrunk to stay visible (0 = as configured). Reset when space may have freed up.
     private var fitLevel = 0
+
+    /// Diagnostics for the automatic fit, on with `MENUSTATS_DEBUG=1` (run the app from a terminal to read them).
+    private func debug(_ text: @autoclosure () -> String) {
+        guard ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil else { return }
+        NSLog("MENUSTATS \(text())")
+    }
     private var pinApplied: Bool?
     private var fitCheck: DispatchWorkItem?
     private var confirmation = FitConfirmation()
@@ -109,6 +116,7 @@ final class StatusBarController: NSObject {
             guard let self else { return }
             restoreWork = nil
             guard fitLevel > 0 else { return }
+            debug("prova a ripristinare: livello \(fitLevel) -> \(fitLevel - 1)")
             fitLevel -= 1
             confirmation.beganRestore()
             confirmation.layoutChanged(at: Date(), signature: layoutSignature)
@@ -137,6 +145,29 @@ final class StatusBarController: NSObject {
         return false
     }
 
+    /// The app owning a window that covers a status item, if any. Another app's window at menu bar level (a full-width
+    /// overlay, even a fully transparent one, as some apps keep over the bar; or the lock screen) makes macOS report the
+    /// item as occluded although there is plenty of room: that is not a reason to shrink the bar. The system's own windows (the ones that host the status items) do not count.
+    private func coveringOwner(of window: NSWindow) -> String? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        // Core Graphics counts from the top left of the primary screen, AppKit from the bottom left.
+        let frame = CGRect(x: window.frame.minX, y: primary.frame.height - window.frame.maxY,
+                           width: window.frame.width, height: window.frame.height)
+        let ignored: Set<String> = ["Window Server", "Control Center", "SystemUIServer", "Dock"]
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        for info in windows {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer >= 25,
+                  (info[kCGWindowOwnerPID as String] as? Int32) != ownPID,
+                  let owner = info[kCGWindowOwnerName as String] as? String, !ignored.contains(owner),
+                  let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDictionary) else { continue }
+            let overlap = bounds.intersection(frame)
+            if !overlap.isNull, overlap.width * overlap.height > frame.width * frame.height * 0.5 { return owner }
+        }
+        return nil
+    }
+
     private func scheduleFitCheck(after delay: Double = 0.6) {
         fitCheck?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.checkFit() }
@@ -146,14 +177,20 @@ final class StatusBarController: NSObject {
 
     private func checkFit() {
         guard settings.autoFitMenubar, !entries.isEmpty else { return }
-        let hidden = entries.contains { isHidden($0.item) }
+        var hidden = entries.contains { isHidden($0.item) }
+        // Looks hidden only because another app's window sits on top of the bar: not a lack of room.
+        let cover = hidden ? entries.compactMap { $0.item.button?.window }.compactMap(coveringOwner(of:)).first : nil
+        if cover != nil { hidden = false }
         let verdict = confirmation.observe(hidden: hidden, signature: layoutSignature, at: Date())
         if ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil {
             let details = entries.map { entry -> String in
                 guard let window = entry.item.button?.window else { return "senza finestra" }
                 return "visibile=\(window.isVisible) occlusione=\(window.occlusionState.rawValue) schermo=\(window.screen?.frame ?? .zero) frame=\(window.frame)"
             }
-            NSLog("MENUSTATS spazio: livello \(fitLevel), nascosto \(hidden), verdetto \(verdict), \(details)")
+            let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+            let screen = entries.first?.item.button?.window?.screen
+            let bar = screen.map { "barra=\($0.frame.maxY - $0.visibleFrame.maxY) schermo=\($0.frame) visibile=\($0.visibleFrame)" } ?? "senza schermo"
+            NSLog("MENUSTATS spazio: app in primo piano=\(front) \(bar) livello \(fitLevel), nascosto \(hidden), coperto da \(cover ?? "nessuno"), verdetto \(verdict), \(details)")
         }
         switch verdict {
         case .fine:
@@ -162,6 +199,7 @@ final class StatusBarController: NSObject {
         case .wait(let seconds): scheduleFitCheck(after: seconds)
         case .shrink:
             guard fitLevel < maxFitLevel else { return }
+            debug("riduco: livello \(fitLevel) -> \(fitLevel + 1)")
             fitLevel += 1
             confirmation.layoutChanged(at: Date(), signature: layoutSignature)
             rebuild()
@@ -170,6 +208,7 @@ final class StatusBarController: NSObject {
 
     /// Something that changes the room in the menu bar happened: start again from the full bar.
     private func resetFit() {
+        debug("resetFit (livello \(fitLevel))")
         guard fitLevel > 0 else { scheduleFitCheck(); return }
         restoreWork?.cancel()
         restoreWork = nil
@@ -192,6 +231,7 @@ final class StatusBarController: NSObject {
                                                queue: .main) { [weak self] note in
             guard let self, let window = note.object as? NSWindow,
                   entries.contains(where: { $0.item.button?.window === window }) else { return }
+            debug("occlusione cambiata: visibile=\(window.occlusionState.contains(.visible)) frame=\(window.frame)")
             scheduleFitCheck(after: 0.3)
         }
     }
@@ -322,6 +362,7 @@ final class StatusBarController: NSObject {
     // MARK: - Clicks
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
+        debug("clic sulla barra (livello \(fitLevel))")
         guard let entry = entries.first(where: { $0.item.button === sender }), let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {

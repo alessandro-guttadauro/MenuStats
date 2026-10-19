@@ -82,4 +82,46 @@ final class FitConfirmationTests: XCTestCase {
         XCTAssertEqual(fit.observe(hidden: false, signature: 4, at: t0.addingTimeInterval(32)), .fine)
         XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
     }
+
+    func testAReadingThatStaysHiddenCostsOnlyAFewShrinks() {
+        // The field case: the item looked hidden at every width, because something else covered the bar.
+        var fit = FitConfirmation()
+        var shrinks = 0
+        var signature = 1.0
+        var now = t0
+        while now < t0.addingTimeInterval(15) {
+            switch fit.observe(hidden: true, signature: signature, at: now) {
+            case .shrink:
+                shrinks += 1
+                signature += 10 // the layout does move after each shrink
+                fit.layoutChanged(at: now, signature: signature - 5)
+            default: break
+            }
+            now = now.addingTimeInterval(0.25)
+        }
+        XCTAssertEqual(shrinks, FitConfirmation.shrinkBudget)
+    }
+
+    func testShrinksAreEarnedBackWithTimeAndAVisibleReadingResetsThem() {
+        var fit = FitConfirmation()
+        var now = t0
+        func shrinkNow() -> Bool {
+            fit.layoutChanged(at: now.addingTimeInterval(-10), signature: 1)
+            _ = fit.observe(hidden: true, signature: 2, at: now)
+            now = now.addingTimeInterval(1)
+            return fit.observe(hidden: true, signature: 2, at: now) == .shrink
+        }
+        XCTAssertTrue(shrinkNow())
+        now = now.addingTimeInterval(1)
+        XCTAssertTrue(shrinkNow())
+        now = now.addingTimeInterval(1)
+        XCTAssertFalse(shrinkNow()) // out of shrinks
+        now = now.addingTimeInterval(FitConfirmation.shrinkRefill)
+        XCTAssertTrue(shrinkNow()) // one earned back
+        XCTAssertEqual(fit.observe(hidden: false, at: now.addingTimeInterval(1)), .fine)
+        now = now.addingTimeInterval(2)
+        XCTAssertTrue(shrinkNow())
+        now = now.addingTimeInterval(1)
+        XCTAssertTrue(shrinkNow()) // a visible reading restored the whole budget
+    }
 }

@@ -8,6 +8,8 @@ import Foundation
 /// - readings are ignored while the items settle;
 /// - after a change the bar is not shrunk again until the items' position actually moved (or a timeout passes);
 /// - an item must look hidden for a while before the bar is shrunk;
+/// - only a couple of shrinks happen in a row (then one more every so often), so a reading that stays "hidden" whatever
+///   the width, because something else is going on, costs at most a few modules and not the whole bar;
 /// - a shrunk bar tries one step wider every so often, backing off when that does not fit.
 struct FitConfirmation {
     enum Verdict: Equatable {
@@ -25,6 +27,9 @@ struct FitConfirmation {
     static let confirm: TimeInterval = 0.8
     /// Seconds to wait for the layout to move after a change before trusting a hidden reading anyway.
     static let layoutLag: TimeInterval = 5.0
+    /// Shrinks allowed in a row before they are spaced out, and the seconds it takes to earn another.
+    static let shrinkBudget = 2
+    static let shrinkRefill: TimeInterval = 20
     static let firstRestoreDelay: TimeInterval = 10
     static let maxRestoreDelay: TimeInterval = 600
 
@@ -32,6 +37,8 @@ struct FitConfirmation {
     private var changedAt = Date.distantPast
     private var signatureAtChange: Double?
     private var hiddenSince: Date?
+    private var budget = FitConfirmation.shrinkBudget
+    private var budgetCountedAt = Date.distantPast
     private(set) var restoreDelay = FitConfirmation.firstRestoreDelay
     private var restoring = false
 
@@ -48,6 +55,7 @@ struct FitConfirmation {
         if now < settledAt { return .wait(settledAt.timeIntervalSince(now) + 0.1) }
         guard hidden else {
             hiddenSince = nil
+            budget = Self.shrinkBudget
             if restoring {
                 restoring = false
                 restoreDelay = Self.firstRestoreDelay // the wider bar fits: next step soon
@@ -59,6 +67,14 @@ struct FitConfirmation {
         let since = hiddenSince ?? now
         hiddenSince = since
         if now.timeIntervalSince(since) >= Self.confirm {
+            // Earn back shrinks with time.
+            if budget < Self.shrinkBudget, now.timeIntervalSince(budgetCountedAt) >= Self.shrinkRefill {
+                budget += 1
+                budgetCountedAt = now
+            }
+            guard budget > 0 else { return .wait(5) }
+            budget -= 1
+            if budget == Self.shrinkBudget - 1 { budgetCountedAt = now }
             hiddenSince = nil
             if restoring {
                 restoring = false
