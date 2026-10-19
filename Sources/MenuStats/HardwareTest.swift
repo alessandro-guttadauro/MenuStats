@@ -8,7 +8,7 @@ import ServiceManagement
 /// then fixes it again and exits without resetting, to check that the helper restores automatic mode by itself).
 enum HardwareTest {
     static func install(_ enabled: Bool) {
-        let service = SMAppService.daemon(plistName: HelperConstants.plistName)
+        let service = SMAppService.daemon(plistName: HelperConstants.plistName(label: HardwareControl.helperLabel))
         do {
             if enabled { try service.register() } else { try service.unregister() }
         } catch {
@@ -22,7 +22,7 @@ enum HardwareTest {
     }
 
     static func fanTest(fan: Int, rpm: Double) {
-        let connection = NSXPCConnection(machServiceName: HelperConstants.machService, options: .privileged)
+        let connection = NSXPCConnection(machServiceName: HardwareControl.helperLabel, options: .privileged)
         connection.remoteObjectInterface = NSXPCInterface(with: MenuStatsHelperProtocol.self)
         connection.resume()
         let helper = connection.remoteObjectProxyWithErrorHandler { print("XPC: \($0.localizedDescription)") } as! MenuStatsHelperProtocol

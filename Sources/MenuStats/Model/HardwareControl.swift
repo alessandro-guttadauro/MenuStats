@@ -46,11 +46,16 @@ final class HardwareControl: ObservableObject {
 
     static let chargeLimits = [80, 90, 100]
 
-    private let service = SMAppService.daemon(plistName: HelperConstants.plistName)
+    /// This build's helper name (see HelperConstants.label).
+    static let helperLabel = HelperConstants.label(bundleURL: Bundle.main.bundleURL)
+    /// The helper name last seen registered, to move an installed helper to a new build's name.
+    private static let registeredLabelKey = "helperLabel"
+    private let service = SMAppService.daemon(plistName: HelperConstants.plistName(label: helperLabel))
     private var connection: NSXPCConnection?
     private var observers: [NSObjectProtocol] = []
 
     init() {
+        migrateHelper()
         refreshHelperState()
         refreshChargeLimit()
         // The helper hands fans back to macOS before sleep; mirror that here.
@@ -72,10 +77,40 @@ final class HardwareControl: ObservableObject {
         switch service.status {
         case .enabled:
             helperState = .installed
+            UserDefaults.standard.set(Self.helperLabel, forKey: Self.registeredLabelKey)
             checkVersion()
         case .requiresApproval: helperState = .requiresApproval
         default: helperState = .notInstalled
         }
+    }
+
+    /// After an update that changed the helper, registers it under its new name and drops the old one, so the user
+    /// does nothing: the app is already allowed in Login Items, so macOS asks no approval for it.
+    private func migrateHelper() {
+        guard LoginItem.isAvailable, service.status != .enabled else { return }
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: Self.registeredLabelKey)
+            ?? (Self.launchdKnows(HelperConstants.legacyLabel) ? HelperConstants.legacyLabel : nil)
+        guard let previous, previous != Self.helperLabel else { return }
+        defaults.set(Self.helperLabel, forKey: Self.registeredLabelKey) // one attempt per name, never a loop
+        try? SMAppService.daemon(plistName: HelperConstants.plistName(label: previous)).unregister()
+        do {
+            try service.register()
+            NSLog("MenuStats: helper moved from \(previous) to \(Self.helperLabel)")
+        } catch {
+            NSLog("MenuStats: helper migration failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func launchdKnows(_ label: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "system/\(label)"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     func installHelper() {
@@ -95,6 +130,7 @@ final class HardwareControl: ObservableObject {
             connection = nil
             fanTargets = [:]
             lidAwake = false
+            UserDefaults.standard.removeObject(forKey: Self.registeredLabelKey)
             do { try service.unregister() } catch { fanError = "Rimozione non riuscita: \(error.localizedDescription)" }
             refreshHelperState()
         }
@@ -183,7 +219,7 @@ final class HardwareControl: ObservableObject {
     /// One long-lived connection: the helper resets the fans when it goes away, i.e. when this process ends.
     private func makeConnection() -> NSXPCConnection {
         if let connection { return connection }
-        let connection = NSXPCConnection(machServiceName: HelperConstants.machService, options: .privileged)
+        let connection = NSXPCConnection(machServiceName: Self.helperLabel, options: .privileged)
         connection.remoteObjectInterface = NSXPCInterface(with: MenuStatsHelperProtocol.self)
         if let requirement = Self.helperRequirement() { connection.setCodeSigningRequirement(requirement) }
         let lost = { [weak self] in

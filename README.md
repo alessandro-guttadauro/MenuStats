@@ -333,6 +333,11 @@ come il sito o l'app di ChatGPT, non si possono collegare così: per loro c'è "
   `pmset disablesleep`, il kernel la accetta solo da root). Prima scrive un segnaposto in
   `/Library/Application Support/MenuStats/lid-awake`: se l'helper muore o manca la corrente, al riavvio (RunAtLoad)
   lo trova e rimette lo stop. L'app rinnova la richiesta ogni minuto; dopo 3 minuti senza rinnovo l'helper la lascia.
+- Nome dell'helper: con la firma ad hoc macOS lega il daemon al code hash che aveva alla prima registrazione e non lo
+  aggiorna più, quindi un helper nuovo con lo stesso nome verrebbe rifiutato (*Launch Constraint Violation*).
+  `build-app.sh` gli dà un nome che dipende dal contenuto (`local.menustats.helper.<hash>`, scritto anche in
+  `MSHelperLabel` nell'Info.plist): a ogni aggiornamento che cambia l'helper l'updater toglie il vecchio e registra
+  il nuovo, e se serve lo fa l'app all'avvio. L'utente non deve fare nulla e macOS non chiede una nuova approvazione.
 - Per distribuire su altri Mac senza riapprovare l'helper a ogni versione servono Developer ID e notarizzazione:
   `SIGN_IDENTITY="Developer ID Application: …" ./scripts/build-app.sh`.
 

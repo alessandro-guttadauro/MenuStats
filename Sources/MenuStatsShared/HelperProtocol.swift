@@ -2,8 +2,20 @@ import Foundation
 
 /// Names shared by the app and its privileged helper.
 public enum HelperConstants {
-    public static let machService = "local.menustats.helper"
-    public static let plistName = "local.menustats.helper.plist"
+    /// The name used up to v1.x and when running outside a built bundle (`swift run`).
+    public static let legacyLabel = "local.menustats.helper"
+    /// Info.plist key where build-app.sh writes the helper's launchd label.
+    public static let labelKey = "MSHelperLabel"
+
+    /// launchd label and Mach service name of the helper shipped in the app at `bundleURL`.
+    /// build-app.sh derives it from the helper's contents: macOS ties an ad hoc signed daemon to the code hash it had
+    /// when first registered and never refreshes that, so a changed helper must come under a new name to start at all.
+    public static func label(bundleURL: URL) -> String {
+        let info = NSDictionary(contentsOf: bundleURL.appendingPathComponent("Contents/Info.plist"))
+        return info?[labelKey] as? String ?? legacyLabel
+    }
+
+    public static func plistName(label: String) -> String { label + ".plist" }
     public static let appIdentifier = "local.menustats"
     /// Bumped whenever the XPC interface changes, so the app can ask for a reinstall.
     public static let version = 2

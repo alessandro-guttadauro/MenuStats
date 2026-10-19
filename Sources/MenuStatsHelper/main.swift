@@ -349,11 +349,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     /// Requirement matching the MenuStats.app this helper ships in: by Team ID when Developer ID signed,
     /// otherwise by the exact code hash of the app (ad hoc signatures have no certificate to pin).
     static func clientRequirement() -> String? {
-        // launchd starts BundleProgram with a relative argv[0], so ask the kernel for the absolute path.
-        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        guard proc_pidpath(getpid(), &path, UInt32(path.count)) > 0 else { return nil }
-        let helper = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
-        let app = helper.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        guard let app = appBundle() else { return nil }
         var code: SecStaticCode?
         guard app.pathExtension == "app", SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
               SecStaticCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }
@@ -367,6 +363,14 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         guard let hash = info[kSecCodeInfoUnique as String] as? Data else { return nil }
         return "identifier \"\(HelperConstants.appIdentifier)\" and cdhash H\"\(hash.map { String(format: "%02x", $0) }.joined())\""
     }
+}
+
+/// The MenuStats.app this helper ships in. launchd starts BundleProgram with a relative argv[0], so ask the kernel.
+func appBundle() -> URL? {
+    var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    guard proc_pidpath(getpid(), &path, UInt32(path.count)) > 0 else { return nil }
+    let helper = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
+    return helper.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 }
 
 // MARK: - Sleep and termination
@@ -413,7 +417,7 @@ let thermalObserver = NotificationCenter.default.addObserver(forName: ProcessInf
 }
 
 let delegate = ListenerDelegate(fans: fans, lid: lid)
-let listener = NSXPCListener(machServiceName: HelperConstants.machService)
+let listener = NSXPCListener(machServiceName: appBundle().map(HelperConstants.label(bundleURL:)) ?? HelperConstants.legacyLabel)
 listener.delegate = delegate
 listener.resume()
 NSLog("MenuStatsHelper \(HelperConstants.version) ready")
