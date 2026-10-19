@@ -83,7 +83,8 @@ La scheda **Mappa** mostra dove si trova il Mac e, sotto, **i tuoi dispositivi v
 (AirPods, tastiere, mouse, controller) e gli iPhone, iPad e Apple Watch che macOS riconosce, su un radar con la distanza stimata
 dal segnale. Sono solo i dispositivi che macOS già conosce (la stessa lista di Impostazioni di Sistema ▸ Bluetooth):
 MenuStats non cerca né mostra dispositivi di altre persone. Il Bluetooth dà la distanza, non la direzione. Il radar si
-può nascondere da Impostazioni ▸ Mappa; l'elenco con le distanze resta.
+può nascondere da Impostazioni ▸ Mappa; l'elenco con le distanze resta. Sotto c'è l'interruttore del blocco automatico
+(vedi sotto), già regolato come in Impostazioni.
 
 **Blocca il Mac se mi allontano** (Impostazioni ▸ Mappa, spento di default): scegli uno o più dei tuoi dispositivi, per
 esempio iPhone o Apple Watch, e un tempo di attesa (da 2 secondi a 5 minuti). Quando non li sente più per quel tempo, il

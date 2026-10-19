@@ -60,9 +60,12 @@ final class MapLocator: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 }
 
-/// Map with this Mac's position, plus a way into Find My for the other devices and people.
+/// Map with this Mac's position, the user's nearby devices, and the automatic-lock switch.
 struct MapTab: View {
     var mapHeight: CGFloat = 240
+    /// Adds the automatic-lock switch under the nearby devices (the dropdown); the Settings page has its own controls.
+    var proximity: ProximityLock?
+    var openSettings: (() -> Void)?
     @StateObject private var locator = MapLocator()
     @StateObject private var nearby = NearbyDevicesMonitor()
     @ObservedObject private var settings = Settings.shared
@@ -92,10 +95,8 @@ struct MapTab: View {
 
             NearbyCard(monitor: nearby)
 
-            Card(title: "iPhone, AirTag e amici") {
-                Text("Apple non permette ad altre app di leggere le posizioni di Dov'è (iPhone, AirTag, amici): si vedono solo nell'app Dov'è.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button { Self.openFindMy() } label: { Label("Apri Dov'è", systemImage: "location.circle") }
+            if let proximity {
+                ProximityLockCard(proximity: proximity, openSettings: openSettings)
             }
         }
         .onAppear { locator.refresh() }
@@ -135,15 +136,54 @@ struct MapTab: View {
         case .locating, .idle: "Rilevo la posizione…"
         }
     }
-
-    private static func openFindMy() {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.findmy") {
-            NSWorkspace.shared.openApplication(at: url, configuration: .init())
-        }
-    }
 }
 
 private struct MapPin: Identifiable {
     let coordinate: CLLocationCoordinate2D
     var id: Double { coordinate.latitude + coordinate.longitude }
+}
+
+/// The proximity lock's on/off switch, with a summary of how it is set up in Settings.
+struct ProximityLockCard: View {
+    @ObservedObject var proximity: ProximityLock
+    @ObservedObject private var settings = Settings.shared
+    var openSettings: (() -> Void)?
+
+    private var names: [String] { settings.proximityLockDevices.values.sorted() }
+
+    var body: some View {
+        Card(title: "Blocco automatico",
+             trailing: settings.proximityLockEnabled && !names.isEmpty ? "\(proximity.presentCount) di \(names.count) vicini" : nil) {
+            Toggle(isOn: $settings.proximityLockEnabled) {
+                Label("Blocca il Mac se mi allontano", systemImage: "lock.shield")
+            }
+            .toggleStyle(.switch).controlSize(.small)
+            if names.isEmpty {
+                Text("Scegli i dispositivi da controllare nelle Impostazioni: senza, il blocco non si attiva.")
+                    .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(summary).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let openSettings {
+                Button(action: openSettings) { Label("Regola nelle Impostazioni…", systemImage: "gearshape") }
+                    .buttonStyle(.link).font(.system(size: 11.5))
+            }
+        }
+    }
+
+    private var summary: String {
+        var parts = [names.prefix(3).joined(separator: ", ") + (names.count > 3 ? " e altri \(names.count - 3)" : "")]
+        if names.count > 1 { parts.append(settings.proximityLockRequiresAll ? "blocca quando se ne allontanano tutti" : "blocca quando se ne allontana uno") }
+        parts.append("dopo \(Self.graceText(settings.proximityLockGrace)) senza segnale")
+        if settings.proximityLockUseDistance { parts.append("o oltre \(Self.meters(settings.proximityLockDistance)) m") }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func graceText(_ seconds: Int) -> String {
+        seconds >= 60 ? "\(seconds / 60) min" : "\(seconds) s"
+    }
+
+    private static func meters(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
+    }
 }

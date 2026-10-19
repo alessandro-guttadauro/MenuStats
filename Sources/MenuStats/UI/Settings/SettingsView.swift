@@ -267,7 +267,7 @@ struct MapSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSection(title: "Posizione", footnote: "La posizione viene chiesta a macOS solo con questa pagina o la scheda Mappa aperte. Le posizioni di Dov'è (iPhone, AirTag, amici) non sono accessibili ad altre app: il pulsante apre Dov'è.") {
+            SettingsSection(title: "Posizione", footnote: "La posizione viene chiesta a macOS solo con questa pagina o la scheda Mappa aperte. Le posizioni di Dov'è (iPhone, AirTag, amici) non sono accessibili ad altre app.") {
                 MapTab(mapHeight: 360)
             }
             NearbyDevicesSettings(settings: settings)
