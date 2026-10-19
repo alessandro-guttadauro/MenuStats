@@ -89,8 +89,34 @@ final class StatusBarController: NSObject {
     private var fitLevel = 0
     private var pinApplied: Bool?
     private var fitCheck: DispatchWorkItem?
+    private var confirmation = FitConfirmation()
 
     private var maxFitLevel: Int { max(settings.visibleModules.count, 1) }
+
+    /// Where macOS put the items, as one number that changes when any of them moves or resizes.
+    private var layoutSignature: Double {
+        entries.reduce(0) { total, entry in
+            guard let frame = entry.item.button?.window?.frame else { return total }
+            return total + Double(frame.minX) * 3 + Double(frame.width)
+        }
+    }
+
+    private var restoreWork: DispatchWorkItem?
+
+    private func scheduleRestore() {
+        guard restoreWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            restoreWork = nil
+            guard fitLevel > 0 else { return }
+            fitLevel -= 1
+            confirmation.beganRestore()
+            confirmation.layoutChanged(at: Date(), signature: layoutSignature)
+            rebuild()
+        }
+        restoreWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + confirmation.restoreDelay, execute: work)
+    }
 
     /// macOS places items with a smaller preferred position closer to the clock. Written before each item is
     /// created, so MenuStats stays at the right end and other apps' icons overflow first.
@@ -121,17 +147,32 @@ final class StatusBarController: NSObject {
     private func checkFit() {
         guard settings.autoFitMenubar, !entries.isEmpty else { return }
         let hidden = entries.contains { isHidden($0.item) }
+        let verdict = confirmation.observe(hidden: hidden, signature: layoutSignature, at: Date())
         if ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil {
-            NSLog("MENUSTATS spazio: livello \(fitLevel), nascosto \(hidden), finestre \(entries.map { $0.item.button?.window?.frame ?? .zero })")
+            let details = entries.map { entry -> String in
+                guard let window = entry.item.button?.window else { return "senza finestra" }
+                return "visibile=\(window.isVisible) occlusione=\(window.occlusionState.rawValue) schermo=\(window.screen?.frame ?? .zero) frame=\(window.frame)"
+            }
+            NSLog("MENUSTATS spazio: livello \(fitLevel), nascosto \(hidden), verdetto \(verdict), \(details)")
         }
-        guard hidden, fitLevel < maxFitLevel else { return }
-        fitLevel += 1
-        rebuild()
+        switch verdict {
+        case .fine:
+            // Shrunk earlier, fits now: try one step wider after a while (it may have been a passing lack of room).
+            if fitLevel > 0 { scheduleRestore() }
+        case .wait(let seconds): scheduleFitCheck(after: seconds)
+        case .shrink:
+            guard fitLevel < maxFitLevel else { return }
+            fitLevel += 1
+            confirmation.layoutChanged(at: Date(), signature: layoutSignature)
+            rebuild()
+        }
     }
 
     /// Something that changes the room in the menu bar happened: start again from the full bar.
     private func resetFit() {
         guard fitLevel > 0 else { scheduleFitCheck(); return }
+        restoreWork?.cancel()
+        restoreWork = nil
         fitLevel = 0
         rebuild()
     }
@@ -160,6 +201,7 @@ final class StatusBarController: NSObject {
         // Turning "next to the clock" on recreates the items, since macOS reads the position only when one is created.
         if wanted != entries.map(\.modules) || (settings.pinNearClock && pinApplied != true) {
             pinApplied = settings.pinNearClock
+            confirmation.layoutChanged(at: Date(), signature: layoutSignature)
             entries.forEach { NSStatusBar.system.removeStatusItem($0.item) }
             // New status items appear to the left of older ones, so create them right-to-left.
             entries = wanted.reversed().enumerated().map { rank, modules in
@@ -211,6 +253,7 @@ final class StatusBarController: NSObject {
             let length = ceil(rendered.image.size.width) + 2
             if abs(entries[index].item.length - length) > 0.5 {
                 entries[index].item.length = length
+                confirmation.layoutChanged(at: Date(), signature: layoutSignature)
                 scheduleFitCheck() // a wider value can push MenuStats out of the bar
             }
             entries[index].hitRanges = rendered.hitRanges
