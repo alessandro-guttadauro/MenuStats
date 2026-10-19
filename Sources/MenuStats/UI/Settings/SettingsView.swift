@@ -396,8 +396,24 @@ struct WeatherPlaceSettings: View {
     @ViewBuilder private var automatic: some View {
         if let place = location.place {
             placeRow(place, trailing: AnyView(EmptyView()))
+        } else if !settings.isEnabled(.weather) {
+            HStack {
+                Image(systemName: "location.slash").foregroundStyle(.secondary)
+                Text("Il rilevamento parte solo con il modulo Meteo acceso.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                Spacer()
+                Button("Accendi Meteo") { settings.setEnabled(.weather, true) }
+            }
         } else {
             switch location.status {
+            case .waitingForPermission:
+                HStack {
+                    Image(systemName: "location.circle").foregroundStyle(.secondary)
+                    Text("In attesa del permesso: consenti la posizione nella richiesta di macOS. Se non compare, abilita MenuStats nei Servizi di localizzazione.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Apri Impostazioni…") { SystemActions.openLocationSettings() }
+                }
             case .denied:
                 HStack {
                     Image(systemName: "location.slash").foregroundStyle(.secondary)
