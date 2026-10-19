@@ -4,7 +4,7 @@ import Combine
 import MenuStatsShared
 import ServiceManagement
 
-/// Fan control (through the root helper) and the macOS charge limit (no root needed).
+/// Fan control and lid-closed awake (through the root helper) and the macOS charge limit (no root needed).
 /// Custom fan speeds live only as long as the app: the helper puts fans back to automatic when MenuStats quits or
 /// crashes and before sleep, so they are never saved.
 final class HardwareControl: ObservableObject {
@@ -31,6 +31,13 @@ final class HardwareControl: ObservableObject {
     @Published private(set) var fanTargets: [Int: Double] = [:]
     @Published private(set) var fanError: String?
     @Published private(set) var busy = false
+
+    /// The helper keeps the Mac awake with the lid closed for this app.
+    @Published private(set) var lidAwake = false
+    /// Why the helper refused or dropped lid-closed awake; nil while it works or was never asked.
+    @Published private(set) var lidError: String?
+    /// Bumped on every lid request, so a late reply to an older one is ignored.
+    private var lidRequest = 0
 
     @Published private(set) var chargeLimitSupported = false
     /// Current charge limit in percent, 100 when off; nil when unknown.
@@ -87,6 +94,7 @@ final class HardwareControl: ObservableObject {
             connection?.invalidate()
             connection = nil
             fanTargets = [:]
+            lidAwake = false
             do { try service.unregister() } catch { fanError = "Rimozione non riuscita: \(error.localizedDescription)" }
             refreshHelperState()
         }
@@ -99,6 +107,38 @@ final class HardwareControl: ObservableObject {
         helper.version { [weak self] version in
             DispatchQueue.main.async {
                 if version != HelperConstants.version { self?.helperState = .outdated }
+            }
+        }
+    }
+
+    // MARK: Lid closed
+
+    /// Asks the helper to keep (or stop keeping) the Mac awake with the lid closed. Asking again renews the lease.
+    func setLidAwake(_ on: Bool) {
+        lidRequest += 1
+        let request = lidRequest
+        guard on else {
+            guard lidAwake || connection != nil else { return }
+            lidAwake = false
+            call({ helper, done in helper.setLidAwake(false, reply: done) }) { _ in }
+            return
+        }
+        guard canUseHelper else { lidAwake = false; lidError = "Installa l'helper per restare sveglio col coperchio chiuso"; return }
+        call({ helper, done in helper.setLidAwake(true, reply: done) }) { [weak self] error in
+            guard let self, request == lidRequest else { return }
+            lidAwake = error == nil
+            lidError = error
+        }
+    }
+
+    /// Keeps the helper's lease alive; learns if a failsafe (heat, battery) gave sleep back to macOS.
+    func renewLidAwake() {
+        guard lidAwake, let helper = proxy({ _ in }) else { return }
+        helper.renewLidAwake { [weak self] held, reason in
+            DispatchQueue.main.async {
+                guard let self, self.lidAwake, !held else { return }
+                self.lidAwake = false
+                self.lidError = reason.map { "Coperchio di nuovo attivo: \($0.lowercased())" } ?? "Coperchio di nuovo attivo"
             }
         }
     }
@@ -150,6 +190,10 @@ final class HardwareControl: ObservableObject {
             DispatchQueue.main.async {
                 self?.connection = nil
                 self?.fanTargets = [:] // the helper restored automatic mode
+                if self?.lidAwake == true { // and let the Mac sleep with the lid closed again
+                    self?.lidAwake = false
+                    self?.lidError = "Helper riavviato: coperchio di nuovo attivo"
+                }
             }
         }
         connection.invalidationHandler = lost

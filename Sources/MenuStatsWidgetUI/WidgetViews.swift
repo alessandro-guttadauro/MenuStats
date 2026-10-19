@@ -268,7 +268,7 @@ struct BatteryShape: View {
                         .stroke(Color.primary.opacity(0.35), lineWidth: 1.5)
                     RoundedRectangle(cornerRadius: proxy.size.height * 0.18)
                         .fill(color)
-                        .frame(width: max(2, (proxy.size.width - tip - 7) * min(max(fraction, 0), 1)))
+                        .frame(width: max(2, (proxy.size.width - tip - 7) * CGFloat(min(max(fraction, 0), 1))))
                         .padding(3)
                 }
                 RoundedRectangle(cornerRadius: 1.5)

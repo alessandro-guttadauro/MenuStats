@@ -589,8 +589,9 @@ struct ModuleSettings: View {
             WeatherPlaceSettings(settings: settings, weather: model.weather, location: model.location)
         case .awake:
             AwakeAISettings(model: model, settings: settings)
+            if HardwarePresence.hasBattery { AwakeLidSettings(awake: model.awake, hardware: model.hardware, settings: settings) }
             SettingsSection(title: "Sessione",
-                            footnote: "Come il comando caffeinate, MenuStats chiede a macOS di non andare in stop per inattività, senza password e senza helper. Una sessione si avvia dalla scheda Sveglio e finisce da sola allo scadere del tempo. Chiudere il coperchio mette comunque il Mac in stop.") {
+                            footnote: "Come il comando caffeinate, MenuStats chiede a macOS di non andare in stop per inattività, senza password e senza helper. Una sessione si avvia dalla scheda Sveglio e finisce da sola allo scadere del tempo. Chiudere il coperchio mette il Mac in stop, a meno di attivare l'opzione Coperchio chiuso.") {
                 Toggle("Lascia spegnere lo schermo", isOn: Binding(get: { settings.awakeAllowDisplaySleep },
                                                                    set: { model.awake.setAllowDisplaySleep($0) }))
                 if HardwarePresence.hasBattery {
@@ -840,7 +841,7 @@ struct HelperSettings: View {
     @ObservedObject var hardware: HardwareControl
 
     var body: some View {
-        SettingsSection(title: "Helper con privilegi", footnote: "Un piccolo servizio di sistema (LaunchDaemon) scrive la velocità delle ventole nello SMC. Accetta comandi solo da questa copia di MenuStats e rifiuta velocità fuori dai limiti di fabbrica. Dopo l'installazione macOS chiede di consentirlo in Impostazioni di Sistema ▸ Generali ▸ Elementi login.") {
+        SettingsSection(title: "Helper con privilegi", footnote: "Un piccolo servizio di sistema (LaunchDaemon) scrive la velocità delle ventole nello SMC e tiene sveglio il Mac col coperchio chiuso. Accetta comandi solo da questa copia di MenuStats e rifiuta velocità fuori dai limiti di fabbrica. Dopo l'installazione macOS chiede di consentirlo in Impostazioni di Sistema ▸ Generali ▸ Elementi login.") {
             HStack(spacing: 6) {
                 Circle().fill(hardware.helperState == .installed ? Color.green : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
                 Text("Stato: \(hardware.helperState.label)").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -862,6 +863,28 @@ struct HelperSettings: View {
             if let error = hardware.fanError { Text(error).font(.system(size: 11)).foregroundStyle(.red) }
         }
         .onAppear { hardware.refreshHelperState() }
+    }
+}
+
+/// Lid-closed awake through the root helper, with what it costs and how it is undone.
+struct AwakeLidSettings: View {
+    let awake: AwakeController
+    @ObservedObject var hardware: HardwareControl
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        SettingsSection(title: "Coperchio chiuso",
+                        footnote: "Durante una sessione l'helper con privilegi disattiva lo stop del Mac, come «sudo pmset disablesleep 1», così puoi chiudere il coperchio e il Mac continua a lavorare. Finché dura, anche Stop dal menu Apple è sospeso. Lo stop torna attivo da solo quando la sessione finisce, quando MenuStats si chiude, va in crash o non risponde per 3 minuti, quando il Mac si scalda troppo, con la batteria sotto il 10% e al riavvio. Se avevi già disattivato lo stop con pmset, MenuStats lo lascia com'è. Non chiudere il Mac acceso in uno zaino: senza aria si scalda.") {
+            Toggle("Resta sveglio anche col coperchio chiuso", isOn: Binding(get: { settings.awakeLidClosed }, set: { awake.setLidClosed($0) }))
+                .disabled(!hardware.canUseHelper && !settings.awakeLidClosed)
+            if !hardware.canUseHelper {
+                Text("Serve l'helper con privilegi: installalo qui sotto.").font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if let error = hardware.lidError {
+                Text(error).font(.system(size: 11)).foregroundStyle(.orange)
+            }
+        }
+        // MacBook Air has no fans, so the helper must be installable from here too.
+        if !hardware.canUseHelper { HelperSettings(hardware: hardware) }
     }
 }
 

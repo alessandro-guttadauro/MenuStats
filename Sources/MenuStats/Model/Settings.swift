@@ -339,6 +339,8 @@ final class Settings: ObservableObject {
     @Published var awakeStyle: AwakeStyle { didSet { save(awakeStyle.rawValue, "awakeStyle") } }
     /// Awake sessions keep the Mac running but let the screen turn off.
     @Published var awakeAllowDisplaySleep: Bool { didSet { save(awakeAllowDisplaySleep, "awakeAllowDisplaySleep") } }
+    /// Also stay awake with the lid closed (through the root helper), while a session runs.
+    @Published var awakeLidClosed: Bool { didSet { save(awakeLidClosed, "awakeLidClosed") } }
     @Published var awakeEndOnLowBattery: Bool { didSet { save(awakeEndOnLowBattery, "awakeEndOnLowBattery") } }
     @Published var awakeLowBatteryThreshold: Double { didSet { save(awakeLowBatteryThreshold, "awakeLowBatteryThreshold") } }
     /// Last custom duration, in minutes, and how long a download may stay still before it counts as finished (seconds).
@@ -448,6 +450,7 @@ final class Settings: ObservableObject {
         weatherStyle = string("weatherStyle", WeatherStyle.iconTemperature)
         awakeStyle = string("awakeStyle", AwakeStyle.iconTime)
         awakeAllowDisplaySleep = bool("awakeAllowDisplaySleep", false)
+        awakeLidClosed = bool("awakeLidClosed", false)
         awakeEndOnLowBattery = bool("awakeEndOnLowBattery", true)
         awakeLowBatteryThreshold = double("awakeLowBatteryThreshold", 0.2)
         awakeCustomMinutes = defaults.object(forKey: "awakeCustomMinutes") as? Int ?? 90

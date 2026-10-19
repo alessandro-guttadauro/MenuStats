@@ -8,6 +8,7 @@ import SwiftUI
 struct AwakeTab: View {
     var model: AppModel
     @ObservedObject private var awake: AwakeController
+    @ObservedObject private var hardware: HardwareControl
     @ObservedObject private var settings = Settings.shared
     @State private var customHours = 0
     @State private var customMinutes = 0
@@ -15,6 +16,7 @@ struct AwakeTab: View {
     init(model: AppModel) {
         self.model = model
         self.awake = model.awake
+        self.hardware = model.hardware
         let minutes = Settings.shared.awakeCustomMinutes
         _customHours = State(initialValue: minutes / 60)
         _customMinutes = State(initialValue: minutes % 60)
@@ -157,6 +159,14 @@ struct AwakeTab: View {
             }
             .toggleStyle(.switch).controlSize(.small)
             if HardwarePresence.hasBattery {
+                Toggle(isOn: Binding(get: { settings.awakeLidClosed }, set: { awake.setLidClosed($0) })) {
+                    Label("Sveglio anche col coperchio chiuso", systemImage: "laptopcomputer")
+                }
+                .toggleStyle(.switch).controlSize(.small)
+                .disabled(!hardware.canUseHelper && !settings.awakeLidClosed)
+                if let lidCaption {
+                    Text(lidCaption).font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 Toggle(isOn: $settings.awakeEndOnLowBattery) {
                     Label("Termina sotto il \(Format.percent(settings.awakeLowBatteryThreshold)) di batteria", systemImage: "battery.25percent")
                 }
@@ -171,12 +181,24 @@ struct AwakeTab: View {
                 StatGrid(items: [
                     ("Stato", state.isActive ? "Attivo" : "Spento"),
                     ("Schermo", !state.isActive ? "—" : (state.allowsDisplaySleep ? "Può spegnersi" : "Resta acceso")),
+                    ("Coperchio chiuso", !state.isActive || !HardwarePresence.hasBattery ? "—" : (hardware.lidAwake ? "Resta sveglio" : "Va in stop")),
                     ("Avviata alle", state.startDate.map { DateText.string($0, settings.use24Hour ? "HH:mm" : "h:mm a") } ?? "—"),
                     ("Termina", endText),
                     ("In corso da", state.startDate.map { Format.clock(context.date.timeIntervalSince($0)) } ?? "—"),
                 ])
             }
         }
+    }
+
+    /// Why lid-closed awake is off or what it implies; nil when there is nothing to add.
+    private var lidCaption: String? {
+        if !hardware.canUseHelper {
+            return "Serve l'helper con privilegi: si installa da Impostazioni ▸ Sveglio."
+        }
+        guard settings.awakeLidClosed else { return nil }
+        if let error = hardware.lidError { return error }
+        if hardware.lidAwake { return "Anche Stop dal menu Apple è sospeso finché dura la sessione." }
+        return state.isActive ? nil : "Vale per la prossima sessione."
     }
 
     // MARK: Actions
