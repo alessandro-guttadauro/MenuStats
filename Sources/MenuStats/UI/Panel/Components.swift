@@ -15,7 +15,13 @@ enum Palette {
     ]
     static let neutral = Color.primary.opacity(0.18)
 
-    static func color(_ index: Int) -> Color { series[index % series.count] }
+    /// Set by the dropdown while a tab with a "Personalizza colore" choice is on screen: replaces that tab's main color.
+    static var override: (index: Int, color: Color)?
+
+    static func color(_ index: Int) -> Color {
+        if let override, override.index == index { return override.color }
+        return series[index % series.count]
+    }
 
     private static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

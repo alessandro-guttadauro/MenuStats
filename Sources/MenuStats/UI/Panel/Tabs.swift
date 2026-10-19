@@ -58,6 +58,7 @@ struct CPUTab: View {
                 }
                 .hideable(.cpuProcesses)
             }
+            GPUCard()
         }
     }
 }
@@ -274,6 +275,7 @@ struct NetworkTab: View {
                 }
                 .hideable(.networkApps)
             }
+            NetworkToolsCard()
         }
         // nettop (per-app traffic) runs only while the section is on screen.
         .onAppear { model.setNetworkProcessSampling(settings.shows(.networkApps)) }
@@ -619,6 +621,7 @@ struct BatteryTab: View {
             } else {
                 Card { Text("Nessuna batteria: il Mac è alimentato dalla rete.").foregroundStyle(.secondary) }
             }
+            DeviceBatteriesCard()
         }
     }
 

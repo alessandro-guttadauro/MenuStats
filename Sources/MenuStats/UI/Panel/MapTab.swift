@@ -62,13 +62,15 @@ final class MapLocator: NSObject, ObservableObject, CLLocationManagerDelegate {
 
 /// Map with this Mac's position, plus a way into Find My for the other devices and people.
 struct MapTab: View {
+    var mapHeight: CGFloat = 240
     @StateObject private var locator = MapLocator()
+    @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         VStack(spacing: 8) {
             Card(title: "Questo Mac", trailing: locator.updated.map { DateText.string($0, "HH:mm") }) {
                 map
-                    .frame(height: 240)
+                    .frame(height: mapHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 HStack(alignment: .firstTextBaseline) {
                     Label(locator.placeName.flatMap { $0.isEmpty ? nil : $0 } ?? statusText, systemImage: "laptopcomputer")
@@ -102,6 +104,7 @@ struct MapTab: View {
             if #available(macOS 14, *) {
                 Map(initialPosition: .region(region)) {
                     Marker("Questo Mac", systemImage: "laptopcomputer", coordinate: coordinate)
+                        .tint(settings.customColor(for: .map) ?? .red)
                 }
                 .id(coordinate.latitude + coordinate.longitude)
             } else {

@@ -1,9 +1,19 @@
 import Foundation
 import UserNotifications
 
-/// Threshold notifications (CPU, temperature, battery, fans), with hysteresis so each fires once per episode.
+/// Threshold notifications (CPU, temperature, battery, fans, a busy app, a full disk, a lost network),
+/// with hysteresis so each fires once per episode.
 final class AlertCenter {
-    private enum Alert: Hashable { case cpu, temperature, batteryLow, batteryCharged, fans }
+    private enum Alert: Hashable { case cpu, temperature, batteryLow, batteryCharged, fans, appCPU(String), diskLow, networkDown }
+
+    /// Own process sampler for the busy-app alert: runs every 30 s, and only while that alert is on.
+    private let processReader = ProcessReader()
+    private var lastProcessSample: Date?
+    /// Apps above the threshold and since when.
+    private var busyApps: [String: Date] = [:]
+    private var lastDiskCheck: Date?
+    private var offlineSince: Date?
+    private static let appBusyDuration: TimeInterval = 2 * 60
 
     private var active: Set<Alert> = []
     private var cpuHighSince: Date?
@@ -44,10 +54,53 @@ final class AlertCenter {
             }
         }
 
+        if settings.alertAppCPU { evaluateApps(at: snapshot.date, threshold: settings.alertAppCPUThreshold) }
+
+        if settings.alertDiskLow, lastDiskCheck.map({ snapshot.date.timeIntervalSince($0) >= 5 * 60 }) ?? true {
+            lastDiskCheck = snapshot.date
+            let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
+            if let free = values?.volumeAvailableCapacityForImportantUsage, let total = values?.volumeTotalCapacity, total > 0 {
+                let fraction = Double(free) / Double(total)
+                update(.diskLow, on: fraction <= settings.alertDiskLowThreshold, off: fraction > settings.alertDiskLowThreshold + 0.02,
+                       "Disco quasi pieno", "Restano \(Format.storage(UInt64(free))) liberi (\(Format.percent(fraction))).")
+            }
+        }
+
+        if settings.alertNetworkDown, let network = snapshot.network {
+            if network.interface == nil {
+                offlineSince = offlineSince ?? snapshot.date
+                // 20 s without a primary interface, so a Wi-Fi roam doesn't notify.
+                if snapshot.date.timeIntervalSince(offlineSince!) >= 20 {
+                    fire(.networkDown, "Rete assente", "Il Mac non è connesso a nessuna rete da più di 20 secondi.")
+                }
+            } else {
+                offlineSince = nil
+                active.remove(.networkDown)
+            }
+        }
+
         if settings.alertFans, let fans = snapshot.smc?.fans, let fastest = fans.max(by: { $0.fraction < $1.fraction }) {
             update(.fans, on: fastest.fraction >= 0.7, off: fastest.fraction < 0.5,
                    "Ventole al massimo", "\(fastest.name) a \(Format.rpm(fastest.rpm)).")
         }
+    }
+
+    /// An app (helpers grouped with their app) using more than `threshold` of a core for two minutes.
+    private func evaluateApps(at date: Date, threshold: Double) {
+        guard lastProcessSample.map({ date.timeIntervalSince($0) >= 30 }) ?? true else { return }
+        lastProcessSample = date
+        let groups = ProcessGrouping.groups(processReader.sample(), byApp: true)
+        var stillBusy: [String: Date] = [:]
+        for group in groups where group.cpu >= threshold {
+            let since = busyApps[group.name] ?? date
+            stillBusy[group.name] = since
+            if date.timeIntervalSince(since) >= Self.appBusyDuration {
+                fire(.appCPU(group.name), "\(group.name) usa molta CPU",
+                     "\(group.name) è al \(Format.percent(group.cpu)) di CPU da più di 2 minuti.")
+            }
+        }
+        for name in busyApps.keys where stillBusy[name] == nil { active.remove(.appCPU(name)) }
+        busyApps = stillBusy
     }
 
     private func update(_ alert: Alert, on: Bool, off: Bool, _ title: String, _ body: String) {

@@ -6,10 +6,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: DashboardPanelController!
     private var statusBar: StatusBarController!
     private var updateItem: UpdateStatusItem!
+    private var appearance: AppearanceController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        settingsWindow = SettingsWindowController(model: model)
+        appearance = AppearanceController(settings: model.settings, weather: model.weather)
+        settingsWindow = SettingsWindowController(model: model) { [weak self] in self?.appearance.apply() }
         panel = DashboardPanelController(model: model) { [weak self] in self?.settingsWindow.show() }
+        panel.onShow = { [weak self] in self?.appearance.apply() }
         statusBar = StatusBarController(model: model, panel: panel) { [weak self] in self?.settingsWindow.show() }
         updateItem = UpdateStatusItem(updater: model.updater) { [weak self] in self?.settingsWindow.show() }
         model.start()

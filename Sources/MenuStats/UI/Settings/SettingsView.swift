@@ -3,7 +3,7 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsPage: Hashable, Identifiable {
-    case general, menubar, module(ModuleID), widgets, updates, notifications, about
+    case general, menubar, module(ModuleID), map, widgets, updates, notifications, about
     var id: Self { self }
 
     var title: String {
@@ -13,6 +13,7 @@ enum SettingsPage: Hashable, Identifiable {
         case .module(let module): module.name
         case .widgets: "Widget"
         case .updates: "Aggiornamenti"
+        case .map: "Mappa"
         case .notifications: "Notifiche"
         case .about: "Info"
         }
@@ -25,6 +26,7 @@ enum SettingsPage: Hashable, Identifiable {
         case .module(let module): module.symbol
         case .widgets: "square.grid.2x2"
         case .updates: "arrow.down.circle"
+        case .map: "map"
         case .notifications: "bell.badge"
         case .about: "info.circle"
         }
@@ -63,6 +65,7 @@ struct SettingsView: View {
                 Section {
                     row(.widgets)
                     row(.updates)
+                    row(.map)
                     row(.notifications)
                     row(.about)
                 }
@@ -97,6 +100,7 @@ struct SettingsView: View {
         case .module(let module): ModuleSettings(module: module, model: model, snapshot: feed.snapshot, settings: settings)
         case .widgets: WidgetSettings(model: model)
         case .updates: UpdateSettings(updater: model.updater)
+        case .map: MapSettings(settings: settings)
         case .notifications: NotificationSettings(settings: settings)
         case .about: AboutSettings(model: model)
         }
@@ -180,6 +184,9 @@ struct GeneralSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SettingsSection(title: "Aspetto", footnote: "Vale per la tendina e per questa finestra; le icone nella barra dei menu seguono macOS. Normale segue macOS. Automatica passa a scura al tramonto e a chiara all'alba (orari del Meteo se acceso, altrimenti dalle 20 alle 7). Puoi cambiarlo anche dal pulsante in fondo alla tendina.") {
+                AppearancePicker(settings: settings)
+            }
             SettingsSection(title: "Aggiornamento") {
                 Picker("Intervallo di aggiornamento", selection: $settings.refreshInterval) {
                     Text("1 secondo").tag(1.0)
@@ -212,6 +219,64 @@ struct GeneralSettings: View {
     }
 }
 
+/// Normale / Chiara / Scura / Automatica for MenuStats' windows.
+struct AppearancePicker: View {
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        Picker("Aspetto", selection: $settings.appearanceMode) {
+            ForEach(AppearanceMode.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+}
+
+/// "Personalizza colore" for one dashboard tab (and the matching menu bar icon).
+struct TabColorPicker: View {
+    var tab: DashboardTab
+    var module: ModuleID?
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ColorPicker(selection: Binding(
+                get: { settings.customColor(for: tab) ?? Palette.series[tab.primaryColorIndex % Palette.series.count] },
+                set: { color in
+                    let hex = NSColor(color).hexString
+                    settings.tabColors[tab] = hex
+                    if let module { settings.moduleColors[module] = hex }
+                }
+            ), supportsOpacity: false) {
+                Label("Personalizza colore", systemImage: "paintpalette")
+            }
+            if settings.tabColors[tab] != nil {
+                Button("Ripristina") {
+                    settings.tabColors[tab] = nil
+                    if let module { settings.moduleColors[module] = Settings.defaultColors[module] }
+                }
+                .buttonStyle(.link)
+            }
+        }
+    }
+}
+
+/// The Map page of Settings: a large map with this Mac's position and its color.
+struct MapSettings: View {
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsSection(title: "Posizione", footnote: "La posizione viene chiesta a macOS solo con questa pagina o la scheda Mappa aperte. Le posizioni di Dov'è (iPhone, AirTag, amici) non sono accessibili ad altre app: il pulsante apre Dov'è.") {
+                MapTab(mapHeight: 360)
+            }
+            SettingsSection(title: "Colore") {
+                TabColorPicker(tab: .map, settings: settings)
+            }
+        }
+    }
+}
+
 struct MenubarSettings: View {
     var model: AppModel
     var snapshot: Snapshot
@@ -225,6 +290,11 @@ struct MenubarSettings: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(title: "Anteprima") {
                 MenubarPreview(image: MenubarRenderer.image(for: settings.visibleModules, context: context).image, vertical: true)
+            }
+            SettingsSection(title: "Barra compatta", footnote: "Su macOS 27, quando accanto al notch non c'è spazio, le icone finiscono dietro la freccia «. La barra compatta toglie le etichette e mostra solo i primi moduli dell'elenco qui sotto, così occupa meno spazio. Gli altri restano nelle schede della tendina. È macOS a decidere cosa nascondere: se non basta, trascina le icone con ⌘ a destra della freccia.") {
+                Toggle("Barra compatta (consigliata con il notch)", isOn: $settings.compactMenubar)
+                Stepper("Moduli mostrati: \(settings.compactModuleCount)", value: $settings.compactModuleCount, in: 1...6)
+                    .disabled(!settings.compactMenubar)
             }
             SettingsSection(title: "Aspetto") {
                 Picker("Disposizione", selection: $settings.layout) {
@@ -328,6 +398,9 @@ struct ModuleSettings: View {
                 }
             }
             SettingsSection(title: "Stile") { stylePicker }
+            SettingsSection(title: "Colore", footnote: "Il colore principale della scheda \(module.tab.title) nella tendina (grafici, barre e icona della scheda) e, con \"Colora l'icona\", della voce nella barra dei menu.") {
+                TabColorPicker(tab: module.tab, module: module, settings: settings)
+            }
             let sections = PanelSection.allCases.filter { $0.module == module }
             if !sections.isEmpty {
                 SettingsSection(title: "Sezioni nella tendina",
@@ -602,6 +675,13 @@ struct NotificationSettings: View {
                 Toggle("Ventole oltre il 70% della velocità massima", isOn: $settings.alertFans)
                     .disabled(!HardwarePresence.hasFans)
                     .help(HardwarePresence.hasFans ? "" : "Questo Mac non ha ventole")
+            }
+            SettingsSection(title: "Avvisi personalizzati", footnote: "Un'app (con i suoi processi di supporto) che resta sopra la soglia per 2 minuti; la soglia è per core, come in Monitoraggio Attività (100% = un core intero). Lo spazio su disco si controlla ogni 5 minuti. La rete assente avvisa dopo 20 secondi senza connessione.") {
+                alert("Un'app usa oltre", isOn: $settings.alertAppCPU, value: $settings.alertAppCPUThreshold, range: 0.3...4, step: 0.1,
+                      format: Format.percent, detail: "di CPU per 2 minuti")
+                alert("Disco con meno del", isOn: $settings.alertDiskLow, value: $settings.alertDiskLowThreshold, range: 0.02...0.3, step: 0.01,
+                      format: Format.percent, detail: "di spazio libero")
+                Toggle("Rete assente (nessuna connessione per 20 secondi)", isOn: $settings.alertNetworkDown)
             }
         }
     }
