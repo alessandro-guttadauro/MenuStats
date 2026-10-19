@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     let settings: Settings
     let history: HistoryStore
     let hardware = HardwareControl()
+    /// Keep-awake sessions (power assertions); idle until the user starts one.
+    let awake: AwakeController
     /// Weather from Open-Meteo; idle (no network) unless the Weather module is enabled with a place chosen.
     let weather = WeatherService()
     /// The Mac's city for the Weather module's automatic mode; idle unless that mode is on.
@@ -47,6 +49,7 @@ final class AppModel: ObservableObject {
     init(settings: Settings = .shared, history: HistoryStore = HistoryStore()) {
         self.settings = settings
         self.history = history
+        self.awake = AwakeController(settings: settings)
         networkProcessReader.onUpdate = { [weak self] usage in self?.networkProcesses = usage }
         settings.$refreshInterval
             .removeDuplicates()
@@ -118,6 +121,7 @@ final class AppModel: ObservableObject {
             live[metric] = buffer
         }
         alerts.evaluate(snapshot, settings: settings)
+        awake.evaluate(snapshot)
         self.snapshot = snapshot
         if snapshot.date.timeIntervalSince(lastSlowUpdate) >= 5 {
             lastSlowUpdate = snapshot.date

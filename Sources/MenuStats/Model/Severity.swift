@@ -90,7 +90,7 @@ enum Severity: Int, Comparable {
             if fraction >= 0.35 { return .elevated }
             return .normal
 
-        case .weather, .date:
+        case .weather, .date, .awake:
             return .normal
 
         case .battery:

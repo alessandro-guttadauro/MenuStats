@@ -3,7 +3,7 @@ import Combine
 import Foundation
 
 enum ModuleID: String, CaseIterable, Identifiable, Codable {
-    case cpu, memory, disk, network, sensors, fans, battery, weather, date
+    case cpu, memory, disk, network, sensors, fans, battery, weather, date, awake
     var id: String { rawValue }
 
     /// Modules this Mac has hardware for: no Fans on a fanless MacBook Air, no Battery on a desktop.
@@ -28,6 +28,7 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
         case .battery: "Batteria"
         case .weather: "Meteo"
         case .date: "Data e ora"
+        case .awake: "Sveglio"
         }
     }
 
@@ -42,6 +43,7 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
         case .battery: "battery.75percent"
         case .weather: "cloud.sun"
         case .date: "calendar"
+        case .awake: "cup.and.saucer"
         }
     }
 
@@ -56,12 +58,13 @@ enum ModuleID: String, CaseIterable, Identifiable, Codable {
         case .battery: .battery
         case .weather: .weather
         case .date: .date
+        case .awake: .awake
         }
     }
 }
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case cpu, memory, disk, network, sensors, battery, weather, date
+    case cpu, memory, disk, network, sensors, battery, weather, date, awake
     var id: String { rawValue }
 
     var title: String {
@@ -74,6 +77,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .battery: "Batteria"
         case .weather: "Meteo"
         case .date: "Data"
+        case .awake: "Sveglio"
         }
     }
 
@@ -87,11 +91,12 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .battery: "battery.75percent"
         case .weather: "cloud.sun"
         case .date: "calendar"
+        case .awake: "cup.and.saucer"
         }
     }
 
     /// Optional tabs only appear while their module is enabled.
-    var isOptional: Bool { self == .weather || self == .date }
+    var isOptional: Bool { self == .weather || self == .date || self == .awake }
 }
 
 /// Optional sections of the dropdown. A hidden section is also not measured (no process list, no nettop,
@@ -167,6 +172,7 @@ enum PanelSection: String, CaseIterable, Identifiable, Codable {
         case .battery: .battery
         case .weather: .weather
         case .date: .date
+        case .awake: .awake
         }
     }
 }
@@ -226,6 +232,11 @@ enum DateStyle: String, StyleOption {
 enum WeatherStyle: String, StyleOption {
     case iconTemperature, temperature, iconOnly, stacked
     var label: String { ["Icona e temperatura", "Solo temperatura", "Solo icona", "Città sopra la temperatura"][Self.allCases.firstIndex(of: self)!] }
+}
+
+enum AwakeStyle: String, StyleOption {
+    case icon, iconTime, stacked
+    var label: String { ["Solo icona", "Icona e tempo rimanente", "Stato sopra il tempo"][Self.allCases.firstIndex(of: self)!] }
 }
 
 /// Whether the weather place is typed by hand or found from the Mac's position.
@@ -300,6 +311,19 @@ final class Settings: ObservableObject {
     @Published var dateStyle: DateStyle { didSet { save(dateStyle.rawValue, "dateStyle") } }
     @Published var use24Hour: Bool { didSet { save(use24Hour, "use24Hour") } }
     @Published var weatherStyle: WeatherStyle { didSet { save(weatherStyle.rawValue, "weatherStyle") } }
+    @Published var awakeStyle: AwakeStyle { didSet { save(awakeStyle.rawValue, "awakeStyle") } }
+    /// Awake sessions keep the Mac running but let the screen turn off.
+    @Published var awakeAllowDisplaySleep: Bool { didSet { save(awakeAllowDisplaySleep, "awakeAllowDisplaySleep") } }
+    @Published var awakeEndOnLowBattery: Bool { didSet { save(awakeEndOnLowBattery, "awakeEndOnLowBattery") } }
+    @Published var awakeLowBatteryThreshold: Double { didSet { save(awakeLowBatteryThreshold, "awakeLowBatteryThreshold") } }
+    /// Last custom duration, in minutes, and how long a download may stay still before it counts as finished (seconds).
+    @Published var awakeCustomMinutes: Int { didSet { save(awakeCustomMinutes, "awakeCustomMinutes") } }
+    @Published var awakeDownloadTimeout: Int { didSet { save(awakeDownloadTimeout, "awakeDownloadTimeout") } }
+    /// Stay awake while an AI tool reports (through files in ~/.menustats/ai) that it is working.
+    @Published var awakeWatchAI: Bool { didSet { save(awakeWatchAI, "awakeWatchAI") } }
+    @Published var awakeAIAllowDisplaySleep: Bool { didSet { save(awakeAIAllowDisplaySleep, "awakeAIAllowDisplaySleep") } }
+    /// A signal not refreshed for this long (minutes) is ignored, e.g. after an interrupted run that never reported its end.
+    @Published var awakeAIStaleMinutes: Int { didSet { save(awakeAIStaleMinutes, "awakeAIStaleMinutes") } }
     @Published var weatherLocationMode: WeatherLocationMode { didSet { save(weatherLocationMode.rawValue, "weatherLocationMode") } }
     @Published var weatherLocation: WeatherLocation? {
         didSet {
@@ -369,6 +393,15 @@ final class Settings: ObservableObject {
         dateStyle = string("dateStyle", DateStyle.dayTime)
         use24Hour = bool("use24Hour", true)
         weatherStyle = string("weatherStyle", WeatherStyle.iconTemperature)
+        awakeStyle = string("awakeStyle", AwakeStyle.iconTime)
+        awakeAllowDisplaySleep = bool("awakeAllowDisplaySleep", false)
+        awakeEndOnLowBattery = bool("awakeEndOnLowBattery", true)
+        awakeLowBatteryThreshold = double("awakeLowBatteryThreshold", 0.2)
+        awakeCustomMinutes = defaults.object(forKey: "awakeCustomMinutes") as? Int ?? 90
+        awakeDownloadTimeout = defaults.object(forKey: "awakeDownloadTimeout") as? Int ?? 30
+        awakeWatchAI = bool("awakeWatchAI", false)
+        awakeAIAllowDisplaySleep = bool("awakeAIAllowDisplaySleep", true)
+        awakeAIStaleMinutes = defaults.object(forKey: "awakeAIStaleMinutes") as? Int ?? 30
         weatherLocationMode = string("weatherLocationMode", WeatherLocationMode.manual)
         weatherLocation = defaults.data(forKey: "weatherLocation").flatMap { try? JSONDecoder().decode(WeatherLocation.self, from: $0) }
 
@@ -391,7 +424,7 @@ final class Settings: ObservableObject {
     /// Default icon colors (validated palette steps), used when "Colora le icone" is on.
     static let defaultColors: [ModuleID: String] = [
         .cpu: "#2A78D6", .memory: "#1BAF7A", .disk: "#EDA100", .network: "#6250D6",
-        .sensors: "#EB6834", .fans: "#E87BA4", .battery: "#008300", .weather: "#2A78D6", .date: "#6250D6",
+        .sensors: "#EB6834", .fans: "#E87BA4", .battery: "#008300", .weather: "#2A78D6", .date: "#6250D6", .awake: "#EDA100",
     ]
 
     func color(for module: ModuleID) -> NSColor {

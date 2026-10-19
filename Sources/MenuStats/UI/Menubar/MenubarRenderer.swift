@@ -21,8 +21,11 @@ enum MenubarRenderer {
         var recent: (Metric, Int) -> [Double]
         /// Fan animation angle in radians, advanced by the status bar controller while fans spin.
         var fanAngle: CGFloat = 0
+        /// Steam animation position (0…1, wraps) while an Awake session runs, advanced like the fan angle.
+        var steamPhase: CGFloat = 0
         var weather: WeatherReport? = nil
         var weatherConfigured = false
+        var awake = AwakeState()
         var now = Date()
     }
 
@@ -68,6 +71,7 @@ enum MenubarRenderer {
         case .battery: battery(context)
         case .weather: weather(context)
         case .date: date(context)
+        case .awake: awake(context)
         }
     }
 
@@ -259,6 +263,29 @@ enum MenubarRenderer {
         }
     }
 
+    private static func awake(_ context: Context) -> MenubarSegment {
+        let state = context.awake
+        let steams = state.isActive && context.options.dynamicIcons
+        let symbol = Part.cup(active: state.isActive, steam: steams ? context.steamPhase : nil)
+        // Timed: hours:minutes left (or ∞ without an end). Download: its percentage when macOS reports one. App: its name.
+        let time: String
+        switch state.kind {
+        case _ where !state.isActive: time = "—"
+        case .timed: time = state.remaining(at: context.now).map(Format.clockCompact) ?? "∞"
+        case .download(_, let progress): time = progress.map { Format.percent($0) } ?? "↓"
+        case .app: time = "App"
+        case .ai(let working): time = working > 1 ? "IA \(working)" : "IA"
+        }
+        switch context.options.awakeStyle {
+        case .icon:
+            return compose(.awake, [symbol])
+        case .iconTime:
+            return compose(.awake, state.isActive ? [symbol, .plain(time, template: "88:88")] : [symbol])
+        case .stacked:
+            return compose(.awake, [symbol, .labeled(state.isActive ? "SVEGLIO" : "SPENTO", time, template: "88:88")])
+        }
+    }
+
     private static func weather(_ context: Context) -> MenubarSegment {
         guard let report = context.weather else {
             // Not configured yet (no place chosen) or still loading.
@@ -290,6 +317,8 @@ enum MenubarRenderer {
         case ring(Double)
         case symbol(String, size: CGFloat)
         case fan(angle: CGFloat, dimmed: Bool)
+        /// The Awake cup; with a `steam` phase, wisps rise from it.
+        case cup(active: Bool, steam: CGFloat?)
         case battery(level: Double, charging: Bool, pluggedIn: Bool, lowPower: Bool)
         /// Always one line, whatever the labels setting. `template` fixes the width (nil: the text itself).
         case plain(String, template: String?)
@@ -363,6 +392,7 @@ enum MenubarRenderer {
         case .ring: return 13
         case .symbol(_, let size): return size + 3
         case .fan: return 14
+        case .cup: return 16
         case .plain(let text, let template):
             return max(measure(text, plainFont), template.map { measure($0, plainFont) } ?? 0)
         case .labeled(let label, let value, let template):
@@ -457,6 +487,12 @@ enum MenubarRenderer {
             let target = NSRect(x: -symbol.size.width / 2, y: -symbol.size.height / 2, width: symbol.size.width, height: symbol.size.height)
             tinted(symbol, ink.accent).draw(in: target, from: .zero, operation: .sourceOver, fraction: dimmed ? 0.5 : 1)
             NSGraphicsContext.restoreGraphicsState()
+
+        case .cup(let active, let steam):
+            // Same size as the other icons. With steam the cup sits a little low, so the wisps fit in the 22 pt bar.
+            let cup = NSRect(x: rect.minX, y: rect.minY - (steam == nil ? 0 : 2), width: rect.width, height: rect.height)
+            drawSymbol(active ? "cup.and.saucer.fill" : "cup.and.saucer", size: 13, in: cup, color: ink.accent)
+            if let steam { drawSteam(phase: steam, in: rect, color: ink.accent) }
 
         case .battery(let level, let charging, let pluggedIn, let lowPower):
             let body = batteryBody(in: rect, charging: charging, pluggedIn: pluggedIn, width: 20, height: 10, radius: 3, ink: ink)
@@ -586,6 +622,36 @@ enum MenubarRenderer {
         return result
     }
 
+    /// Three wavy wisps over the cup. Each is a sine curve whose wave scrolls upward with `phase`, and fades out
+    /// toward its tip, so the steam seems to rise and thin out.
+    private static func drawSteam(phase: CGFloat, in rect: NSRect, color: NSColor) {
+        let baseY = rect.midY + 3.6 // top of the cup
+        let height: CGFloat = 7
+        let step: CGFloat = 0.5
+        let wisps: [(x: CGFloat, offset: CGFloat, scale: CGFloat)] = [(-3, 0, 0.85), (0, 2.1, 1), (3, 4.2, 0.75)]
+        for wisp in wisps {
+            var y: CGFloat = 0
+            var previous: NSPoint?
+            while y <= height {
+                let t = y / height
+                let wave = sin(y * 0.75 - phase * 2 * .pi + wisp.offset)
+                let point = NSPoint(x: rect.midX + wisp.x + wave * 0.8 * wisp.scale * (0.6 + 0.4 * t), y: baseY + y * wisp.scale)
+                if let previous {
+                    let alpha = pow(1 - t, 1.1) * 0.9
+                    let segment = NSBezierPath()
+                    segment.move(to: previous)
+                    segment.line(to: point)
+                    segment.lineWidth = 1
+                    segment.lineCapStyle = .round
+                    color.withAlphaComponent(alpha).setStroke()
+                    segment.stroke()
+                }
+                previous = point
+                y += step
+            }
+        }
+    }
+
     private static func drawSymbol(_ name: String, size: CGFloat, in rect: NSRect, color: NSColor) {
         guard let image = symbolImage(name, size: size) else { return }
         let target = NSRect(x: rect.midX - image.size.width / 2, y: rect.midY - image.size.height / 2,
@@ -634,6 +700,7 @@ struct MenubarOptions {
     var dateStyle: DateStyle
     var use24Hour: Bool
     var weatherStyle: WeatherStyle
+    var awakeStyle: AwakeStyle
     var cpuBusyThreshold: Double
     var temperatureHotThreshold: Double
 
@@ -655,6 +722,7 @@ struct MenubarOptions {
         dateStyle = settings.dateStyle
         use24Hour = settings.use24Hour
         weatherStyle = settings.weatherStyle
+        awakeStyle = settings.awakeStyle
         cpuBusyThreshold = settings.cpuBusyThreshold
         temperatureHotThreshold = settings.temperatureHotThreshold
     }

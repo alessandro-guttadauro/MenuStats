@@ -23,6 +23,7 @@ final class StatusBarController: NSObject {
     private var entries: [Entry] = []
     private var cancellables: Set<AnyCancellable> = []
     private var fanAngle: CGFloat = 0
+    private var steamPhase: CGFloat = 0
     private var animationTimer: Timer?
 
     init(model: AppModel, panel: DashboardPanelController, openSettings: @escaping () -> Void) {
@@ -45,6 +46,12 @@ final class StatusBarController: NSObject {
         // A new weather report re-renders the bar (every 15 minutes at most).
         model.weather.$report.receive(on: RunLoop.main).sink { [weak self] _ in
             DispatchQueue.main.async { self?.render() }
+        }.store(in: &cancellables)
+
+        // Starting or ending an Awake session updates the bar at once, not at the next sample.
+        model.awake.$state.receive(on: RunLoop.main).sink { [weak self] _ in
+            self?.render()
+            self?.updateAnimation()
         }.store(in: &cancellables)
 
         rebuild()
@@ -97,8 +104,10 @@ final class StatusBarController: NSObject {
             options: MenubarOptions(settings),
             recent: { [weak model] metric, count in model?.recentValues(metric, count: count) ?? [] },
             fanAngle: fanAngle,
+            steamPhase: steamPhase,
             weather: model.weather.report,
-            weatherConfigured: settings.weatherLocation != nil
+            weatherConfigured: settings.weatherLocation != nil,
+            awake: model.awake.state
         )
         for index in entries.indices {
             guard let button = entries[index].item.button else { continue }
@@ -141,29 +150,42 @@ final class StatusBarController: NSObject {
         return (result, pixels)
     }
 
-    // MARK: - Fan animation
+    // MARK: - Fan and steam animation
 
     private var shouldAnimateFan: Bool {
         settings.dynamicIcons && settings.isEnabled(.fans) && model.snapshot.fansSpinning
     }
 
+    /// Steam rises from the cup while an Awake session runs.
+    private var shouldAnimateSteam: Bool {
+        settings.dynamicIcons && settings.isEnabled(.awake) && model.awake.state.isActive
+    }
+
     private func updateAnimation() {
-        if shouldAnimateFan, animationTimer == nil {
-            let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in self?.advanceFan() }
+        let animate = shouldAnimateFan || shouldAnimateSteam
+        if animate, animationTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in self?.advanceAnimation() }
             RunLoop.main.add(timer, forMode: .common)
             animationTimer = timer
-        } else if !shouldAnimateFan, animationTimer != nil {
+        } else if !animate, animationTimer != nil {
             animationTimer?.invalidate()
             animationTimer = nil
             fanAngle = 0
+            steamPhase = 0
             render()
         }
     }
 
-    private func advanceFan() {
-        let fraction = model.snapshot.smc?.fans.map(\.fraction).max() ?? 0
-        // 0.4–2 revolutions per second depending on fan speed.
-        fanAngle -= CGFloat(2 * Double.pi * (0.4 + 1.6 * fraction) / 12)
+    private func advanceAnimation() {
+        if shouldAnimateFan {
+            let fraction = model.snapshot.smc?.fans.map(\.fraction).max() ?? 0
+            // 0.4–2 revolutions per second depending on fan speed.
+            fanAngle -= CGFloat(2 * Double.pi * (0.4 + 1.6 * fraction) / 12)
+        } else {
+            fanAngle = 0
+        }
+        // One steam cycle every 2.5 s.
+        steamPhase = shouldAnimateSteam ? (steamPhase + 1 / (12 * 2.5)).truncatingRemainder(dividingBy: 1) : 0
         render()
     }
 

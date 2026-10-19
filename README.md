@@ -6,7 +6,7 @@
 
 **Il tuo Mac, a colpo d'occhio.**<br>
 Monitor di sistema per la barra dei menu di macOS: CPU, memoria, disco, rete, temperature, ventole, batteria,
-meteo e data. Compatto, preciso e leggero.
+meteo, data e un modulo per tenere il Mac sveglio. Compatto, preciso e leggero.
 
 [![Ultima versione](https://img.shields.io/github/v/release/thomas-addamo/MenuStats?label=versione&color=2A78D6)](https://github.com/thomas-addamo/MenuStats/releases/latest)
 [![Download](https://img.shields.io/github/downloads/thomas-addamo/MenuStats/total?label=download&color=1BAF7A)](https://github.com/thomas-addamo/MenuStats/releases)
@@ -34,7 +34,10 @@ meteo e data. Compatto, preciso e leggero.
 - **Una tendina per ogni modulo**: grafici Live, 1 h, 24 h e 7 giorni, processi raggruppati per app, sensori,
   ventole, salute della batteria, volumi e traffico per app.
 - **Icone che reagiscono**: la ventola gira quando le ventole girano, compare una fiamma con la CPU sotto carico,
-  il termometro sale e i colori passano da giallo ad arancione a rosso quando serve attenzione.
+  il termometro sale, la tazza fuma quando il Mac è tenuto sveglio e i colori passano da giallo ad arancione a rosso
+  quando serve attenzione.
+- **Sveglio quando serve**: per un tempo a scelta, finché un file si scarica, finché un'app è aperta o finché
+  un'IA (Claude Code e simili) sta lavorando.
 - **Valori verificati**: `--verify` confronta 18 valori con gli strumenti di macOS. La temperatura CPU è la
   stessa che mostra iStat Menus.
 - **Leggero davvero**: circa l'1% di un core a riposo. Legge spesso solo ciò che stai guardando.
@@ -73,6 +76,7 @@ meteo e data. Compatto, preciso e leggero.
 | **Batteria** | percentuale, nell'icona, tempo, watt | carica, salute ufficiale Apple, cicli, potenza, **limite di carica**, basso consumo |
 | **Meteo** · *facoltativo* | icona + temperatura | condizioni attuali, prossime 24 ore, 7 giorni con barre min/max |
 | **Data e ora** · *facoltativo* | 7 disposizioni, 12/24 ore | calendario del mese, settimana, alba e tramonto |
+| **Sveglio** · *facoltativo* | tazza con vapore, tempo rimanente | durata, durata personalizzata, finché un file si scarica, un'app è aperta o un'IA lavora; schermo acceso o libero, fine con batteria scarica |
 
 Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
 Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
@@ -184,8 +188,103 @@ eccezioni, tutte **spente di default**:
 | Aggiornamenti | una richiesta all'API delle release di GitHub | ogni 6 ore (disattivabile), e il download solo quando lo chiedi |
 | IP pubblico | una richiesta a ipwho.is (e api4.ipify.org per l'IPv4) | opzione attiva e scheda Rete aperta, al massimo ogni 5 minuti |
 
-Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
+Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
+dimensioni del file che scegli di seguire. Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
 8 giorni in `~/Library/Application Support/MenuStats`.
+
+## ☕ Sveglio
+
+Il modulo facoltativo **Sveglio** (Impostazioni ▸ Sveglio, poi attivalo in barra) chiede a macOS di non andare in
+stop per inattività, con le stesse *power assertion* del comando `caffeinate`: niente password, niente helper.
+Mentre una sessione è attiva la tazza in barra si riempie e fuma.
+
+<p align="center"><img src="docs/screenshots/awake.png" alt="La scheda Sveglio con una sessione attiva" width="38%"></p>
+
+- **Durata**: 15 min, 30 min, 1, 2, 4, 8 ore, senza fine, oppure un tempo personalizzato (ore e minuti).
+- **Finché un file si scarica**: scegli il file, o la cartella `.download` di Safari. La sessione finisce quando la
+  dimensione resta ferma per il tempo che indichi (da 10 secondi a 30 minuti) o quando il file sparisce.
+  Se macOS espone l'avanzamento del download, la barra lo mostra.
+- **Finché un'app è aperta**: scegli un'app in esecuzione; la sessione finisce quando la chiudi.
+- **Finché l'IA lavora**: un interruttore che resta acceso. Il Mac resta sveglio mentre uno strumento IA lavora e poi
+  lascia andare da solo (vedi sotto).
+- Lo schermo può restare acceso o spegnersi, e la sessione può finire sotto una soglia di batteria.
+- Chiudere il coperchio mette comunque il Mac in stop: tenerlo acceso a coperchio chiuso richiede i privilegi di
+  amministratore e qui non è offerto.
+
+### Finché l'IA lavora
+
+Ogni strumento IA segnala che sta lavorando creando un file in `~/.menustats/ai/` e lo cancella quando ha finito.
+MenuStats controlla la cartella ogni 2 secondi, solo con l'interruttore acceso: finché c'è almeno un file recente il
+Mac resta sveglio, quando l'ultimo sparisce lascia andare. Più sessioni in parallelo funzionano: ognuna ha il suo
+file. Un file non rinnovato per il tempo scelto in Impostazioni (30 minuti di default) viene ignorato: serve quando
+uno strumento si ferma senza avvisare, per esempio con Esc in Claude Code. Se termini a mano una sessione IA, la
+stessa attività non la riavvia.
+
+**Claude Code.** In Impostazioni ▸ Sveglio, **Copia hook per Claude Code**, poi incolla la sezione `hooks` in
+`~/.claude/settings.json` (o in `.claude/settings.json` di un progetto). `UserPromptSubmit` e `PostToolUse` segnalano
+che sta lavorando, `Stop` e `SessionEnd` che ha finito. L'id della sessione arriva a ogni hook come JSON e dà a ogni
+sessione il suo file; viene ripulito da tutto tranne lettere, cifre, `-` e `_`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; mkdir -p \"$HOME/.menustats/ai\" && touch \"$f\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; mkdir -p \"$HOME/.menustats/ai\" && touch \"$f\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; rm -f \"$f\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; rm -f \"$f\"",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Altri strumenti.** Va bene qualsiasi strumento che può eseguire un comando quando comincia e quando finisce un
+lavoro (hook, script, notifiche di fine attività, un alias). Scegli un nome per lo strumento:
+
+```sh
+# quando inizia (e, se può, ogni volta che lavora ancora)
+mkdir -p ~/.menustats/ai && touch ~/.menustats/ai/nome-strumento
+# quando finisce
+rm -f ~/.menustats/ai/nome-strumento
+```
+
+Per un comando da terminale basta avvolgerlo: `touch ~/.menustats/ai/build; npm run build; rm -f ~/.menustats/ai/build`.
+Uno strumento che avvisa solo della fine non basta, perché manca il segnale di inizio. App senza hook né comandi,
+come il sito o l'app di ChatGPT, non si possono collegare così: per loro c'è "finché un'app è aperta".
 
 ## 🌀 Ventole e limite di carica
 
@@ -224,6 +323,7 @@ flowchart TB
     SB[Barra dei menu rasterizzata]
     DP[Tendina SwiftUI e Swift Charts]
     ST[Impostazioni]
+    AW["AwakeController: assertion IOKit, ~/.menustats/ai"]
     H[MenuStatsHelper: root via XPC]
     W[Open-Meteo e ipwho.is, solo se attivi]
     WG[Widget WidgetKit: leggono widget.json]
@@ -232,6 +332,8 @@ flowchart TB
     SM --> AM
     AM --> SB
     AM --> DP
+    AM --> AW
+    AW -->|tazza e stato| SB
     AM -->|ogni minuto| WG
     W -.-> AM
     ST -.->|cosa è visibile| SM
@@ -246,6 +348,7 @@ flowchart TB
 | Barra dei menu | `Sources/MenuStats/UI/Menubar` |
 | Tendina | `Sources/MenuStats/UI/Panel` |
 | Impostazioni | `Sources/MenuStats/UI/Settings` |
+| Sveglio (sessioni, file, app, IA) | `Sources/MenuStats/Model/AwakeController.swift`, `UI/Panel/AwakeTab.swift` |
 | Widget (dati e viste condivise) | `Sources/MenuStatsWidgetUI` |
 | Estensione WidgetKit | `Sources/MenuStatsWidgets` |
 | Aggiornamenti | `Sources/MenuStats/Model/Updater.swift`, `.github/workflows/release.yml` |
@@ -293,6 +396,9 @@ Grazie a chi ha già contribuito:
   in automatico con stress termico.
 - Il limite di carica parte dall'80%, come in macOS.
 - Con "una voce per modulo" la distanza tra le voci la decide macOS: la voce unica è più compatta.
+- Sveglio non tiene acceso il Mac a coperchio chiuso. Con "finché l'IA lavora", uno strumento interrotto senza
+  avviso (Esc) libera il Mac solo allo scadere del tempo di tolleranza. "Finché un'app è aperta" segue le app con
+  finestra, non i processi di sistema.
 
 ---
 
