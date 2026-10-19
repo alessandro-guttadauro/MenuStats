@@ -7,7 +7,7 @@ import Foundation
 /// geocoder and refreshes every 30 minutes and after wake.
 final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
     enum Status: Equatable {
-        case idle, locating, denied, failed
+        case idle, locating, waitingForPermission, denied, failed
     }
 
     @Published private(set) var place: WeatherLocation?
@@ -65,6 +65,9 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
     private func locate() {
         switch manager.authorizationStatus {
         case .notDetermined:
+            // A menu bar app has no window in front, and macOS may not show the permission prompt to a background app.
+            status = .waitingForPermission
+            NSApp.activate(ignoringOtherApps: true)
             manager.requestWhenInUseAuthorization()
         case .denied, .restricted:
             status = .denied
