@@ -146,7 +146,7 @@ final class StatusBarController: NSObject {
     }
 
     /// The app owning a window that covers a status item, if any. Another app's window at menu bar level (a full-width
-    /// overlay, even a fully transparent one, as some apps keep over the bar; or the lock screen) makes macOS report the
+    /// overlay, a banner, the lock screen) makes macOS report the
     /// item as occluded although there is plenty of room: that is not a reason to shrink the bar. The system's own windows (the ones that host the status items) do not count.
     private func coveringOwner(of window: NSWindow) -> String? {
         guard let primary = NSScreen.screens.first else { return nil }
@@ -160,6 +160,8 @@ final class StatusBarController: NSObject {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer >= 25,
                   (info[kCGWindowOwnerPID as String] as? Int32) != ownPID,
                   let owner = info[kCGWindowOwnerName as String] as? String, !ignored.contains(owner),
+                  // Fully transparent windows are everywhere (Claude keeps one over the bar all the time): they cover nothing.
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
                   let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDictionary) else { continue }
             let overlap = bounds.intersection(frame)
