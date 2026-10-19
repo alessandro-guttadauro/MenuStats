@@ -17,8 +17,7 @@ public struct MenuStatsWidgetView: View {
         if let data {
             content(data)
         } else {
-            WidgetMessage(element: element, title: "Nessun dato",
-                          message: "Avvia MenuStats: i widget si aggiornano mentre l'app è aperta.")
+            WidgetMessage(element: element, title: "Nessun dato", message: "Impossibile leggere i dati di sistema.")
         }
     }
 
@@ -30,24 +29,19 @@ public struct MenuStatsWidgetView: View {
             switch size {
             case .small: OverviewSmall(data: data, time: time)
             case .medium: OverviewMedium(data: data, time: time)
-            case .large: OverviewLarge(data: data, time: time)
             }
-        case .network:
-            if let network = data.network {
-                NetworkWidget(network: network, size: size, time: time)
-            } else { missing }
         case .weather:
             if let weather = data.weather {
                 WeatherWidget(weather: weather, size: size, time: time, fahrenheit: data.fahrenheit)
             } else {
-                WidgetMessage(element: .weather, title: "Meteo spento",
-                              message: "Attiva il modulo Meteo nelle impostazioni di MenuStats.")
+                WidgetMessage(element: .weather, title: "Meteo non disponibile",
+                              message: "Attiva il modulo Meteo in MenuStats: il meteo arriva dall'app.")
             }
         default:
             if let summary = ElementSummary(element: element, data: data) {
                 switch size {
                 case .small: ElementSmall(summary: summary, time: time)
-                default: ElementMedium(summary: summary, time: time)
+                case .medium: ElementMedium(summary: summary, time: time)
                 }
             } else { missing }
         }
@@ -57,11 +51,7 @@ public struct MenuStatsWidgetView: View {
         WidgetMessage(element: element, title: "Non disponibile", message: "Questo Mac non ha \(element.title.lowercased()) da mostrare.")
     }
 
-    /// Time of the data, in orange when it is old (MenuStats closed or the Mac asleep).
-    private func timeLabel(_ date: Date) -> String {
-        let age = Date().timeIntervalSince(date)
-        return age > 20 * 60 ? "⚠︎ " + WidgetFormat.time(date) : WidgetFormat.time(date)
-    }
+    private func timeLabel(_ date: Date) -> String { WidgetFormat.time(date) }
 }
 
 struct WidgetMessage: View {
@@ -108,17 +98,6 @@ struct ElementSummary {
         historyMaximum = nil
         historyMinimum = nil
         switch element {
-        case .cpu:
-            guard let cpu = data.cpu else { return nil }
-            value = String(format: "%.0f", cpu.total * 100); unit = "%"
-            caption = "Utente \(WidgetFormat.percent(cpu.user)) · Sistema \(WidgetFormat.percent(cpu.system))"
-            fraction = cpu.total
-            color = WidgetPalette.usage(cpu.total, base: base)
-            history = cpu.history; historyMaximum = 1
-            rows = [("Utente", WidgetFormat.percent(cpu.user), WidgetPalette.blue),
-                    ("Sistema", WidgetFormat.percent(cpu.system), WidgetPalette.orange)]
-            if let performance = cpu.performanceAverage { rows.append(("Core P", WidgetFormat.percent(performance), nil)) }
-            if let efficiency = cpu.efficiencyAverage { rows.append(("Core E", WidgetFormat.percent(efficiency), nil)) }
         case .memory:
             guard let memory = data.memory else { return nil }
             value = String(format: "%.0f", memory.fraction * 100); unit = "%"
@@ -145,29 +124,10 @@ struct ElementSummary {
             fraction = disk.usedFraction
             color = WidgetPalette.usage(disk.usedFraction, base: base)
             history = []
-            rows = [("Lettura", WidgetFormat.rate(disk.readRate), WidgetPalette.blue),
-                    ("Scrittura", WidgetFormat.rate(disk.writeRate), WidgetPalette.orange),
+            rows = [("Usato", WidgetFormat.storage(disk.total - min(disk.free, disk.total)), WidgetPalette.usage(disk.usedFraction, base: base)),
+                    ("Libero", WidgetFormat.storage(disk.free), WidgetPalette.green),
+                    ("Totale", WidgetFormat.storage(disk.total), nil),
                     ("Volume", disk.name, nil)]
-        case .temperature:
-            guard let temperature = data.temperature, let cpu = temperature.cpu else { return nil }
-            value = WidgetFormat.temperature(cpu, fahrenheit: data.fahrenheit); unit = ""
-            caption = ["Termica nominale", "Termica moderata", "Termica elevata", "Termica critica"][min(max(temperature.thermalState, 0), 3)]
-            fraction = min(max((cpu - 20) / 80, 0), 1)
-            color = WidgetPalette.temperature(cpu)
-            history = temperature.history; historyMinimum = (temperature.history.min() ?? 30) - 3; historyMaximum = (temperature.history.max() ?? 60) + 3
-            rows = [("CPU", WidgetFormat.temperature(cpu, fahrenheit: data.fahrenheit, unit: true), WidgetPalette.temperature(cpu))]
-            if let maximum = temperature.cpuMax { rows.append(("Core più caldo", WidgetFormat.temperature(maximum, fahrenheit: data.fahrenheit, unit: true), nil)) }
-            if let gpu = temperature.gpu { rows.append(("GPU", WidgetFormat.temperature(gpu, fahrenheit: data.fahrenheit, unit: true), WidgetPalette.temperature(gpu))) }
-            if let ssd = temperature.ssd { rows.append(("SSD", WidgetFormat.temperature(ssd, fahrenheit: data.fahrenheit, unit: true), WidgetPalette.temperature(ssd))) }
-        case .fans:
-            guard !data.fans.isEmpty else { return nil }
-            let fastest = data.fans.max { $0.rpm < $1.rpm }!
-            value = String(format: "%.0f", fastest.rpm); unit = "rpm"
-            caption = fastest.rpm > 0 ? "\(WidgetFormat.percent(fastest.fraction)) della velocità massima" : "Ventole ferme"
-            fraction = fastest.fraction
-            color = WidgetPalette.usage(fastest.fraction, base: base)
-            history = []
-            rows = data.fans.map { ("Ventola \($0.id + 1)", String(format: "%.0f rpm · %.0f%%", $0.rpm, $0.fraction * 100), nil) }
         case .battery:
             guard let battery = data.battery else { return nil }
             value = String(format: "%.0f", battery.percent * 100); unit = "%"
@@ -187,7 +147,7 @@ struct ElementSummary {
             if let watts = battery.watts, abs(watts) >= 0.1 {
                 rows.append((watts > 0 ? "In ingresso" : "Consumo", String(format: "%.1f W", abs(watts)), nil))
             }
-        case .overview, .network, .weather:
+        case .overview, .weather:
             return nil
         }
     }
@@ -319,78 +279,6 @@ struct BatteryShape: View {
     }
 }
 
-// MARK: - Network
-
-struct NetworkWidget: View {
-    var network: WidgetData.Network
-    var size: WidgetSize
-    var time: String?
-
-    private var peak: Double { max((network.downloadHistory + network.uploadHistory).max() ?? 1, 1) }
-
-    var body: some View {
-        if size == .small {
-            VStack(alignment: .leading, spacing: 0) {
-                WidgetHeader(element: .network, trailing: time)
-                Spacer(minLength: 4)
-                rate(arrow: "arrow.down", value: network.download, color: WidgetPalette.download, size: 22)
-                rate(arrow: "arrow.up", value: network.upload, color: WidgetPalette.upload, size: 16)
-                Spacer(minLength: 6)
-                chart.frame(height: 30)
-            }
-        } else {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    WidgetHeader(element: .network)
-                    Spacer(minLength: 2)
-                    rate(arrow: "arrow.down", value: network.download, color: WidgetPalette.download, size: 26)
-                    rate(arrow: "arrow.up", value: network.upload, color: WidgetPalette.upload, size: 20)
-                    Spacer(minLength: 2)
-                    Text([network.interface, network.address].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                }
-                .frame(width: 128, alignment: .leading)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(time == nil ? "Ultimi minuti" : "Ultima ora").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                        Spacer()
-                        if let time { Text(time).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary) }
-                    }
-                    chart
-                    HStack {
-                        legend("Download", WidgetPalette.download)
-                        legend("Upload", WidgetPalette.upload)
-                        Spacer()
-                        Text("picco \(WidgetFormat.rate(peak))").font(.system(size: 9)).foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
-    private var chart: some View {
-        ZStack {
-            Sparkline(values: network.downloadHistory, color: WidgetPalette.download, maximum: peak)
-            Sparkline(values: network.uploadHistory, color: WidgetPalette.upload, maximum: peak, filled: false)
-        }
-    }
-
-    private func rate(arrow: String, value: Double, color: Color, size: CGFloat) -> some View {
-        let parts = WidgetFormat.rateParts(value)
-        return HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Image(systemName: arrow).font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(color)
-            BigValue(value: parts.value, unit: parts.unit, size: size)
-        }
-    }
-
-    private func legend(_ label: String, _ color: Color) -> some View {
-        HStack(spacing: 3) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
-        }
-    }
-}
-
 // MARK: - Weather
 
 struct WeatherWidget: View {
@@ -435,7 +323,7 @@ struct WeatherWidget: View {
     }
 
     private var symbol: some View {
-        Image(systemName: weather.symbol).symbolRenderingMode(.multicolor)
+        WeatherSymbol(name: weather.symbol)
     }
 
     @ViewBuilder

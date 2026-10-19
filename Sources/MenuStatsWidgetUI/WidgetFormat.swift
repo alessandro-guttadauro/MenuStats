@@ -12,24 +12,6 @@ public enum WidgetFormat {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .file)
     }
 
-    /// Value and unit split, so the number can be large and the unit small ("2.4", "MB/s").
-    public static func rateParts(_ bytesPerSecond: Double) -> (value: String, unit: String) {
-        let units = ["B/s", "KB/s", "MB/s", "GB/s"]
-        var value = max(bytesPerSecond, 0)
-        var unit = 0
-        while value >= 1000, unit < units.count - 1 {
-            value /= 1000
-            unit += 1
-        }
-        let number = (unit > 0 && value < 10) ? String(format: "%.1f", value) : String(format: "%.0f", value)
-        return (number, units[unit])
-    }
-
-    public static func rate(_ bytesPerSecond: Double) -> String {
-        let parts = rateParts(bytesPerSecond)
-        return parts.value + " " + parts.unit
-    }
-
     public static func temperature(_ celsius: Double, fahrenheit: Bool, unit: Bool = false) -> String {
         let value = fahrenheit ? celsius * 9 / 5 + 32 : celsius
         return String(format: unit ? (fahrenheit ? "%.0f°F" : "%.0f°C") : "%.0f°", value)
@@ -58,12 +40,8 @@ public enum WidgetPalette {
     public static func color(_ element: WidgetElement) -> Color {
         switch element {
         case .overview: purple
-        case .cpu: blue
         case .memory: green
         case .disk: yellow
-        case .network: purple
-        case .temperature: orange
-        case .fans: pink
         case .battery: green
         case .weather: cyan
         }
@@ -81,9 +59,6 @@ public enum WidgetPalette {
     public static func battery(_ fraction: Double, charging: Bool) -> Color {
         charging ? green : fraction <= 0.1 ? red : fraction <= 0.2 ? orange : green
     }
-
-    static let download = blue
-    static let upload = orange
 }
 
 /// Desktop widget geometry on macOS, so previews match the real widgets.
@@ -96,7 +71,6 @@ public enum WidgetMetrics {
         switch size {
         case .small: CGSize(width: 170, height: 170)
         case .medium: CGSize(width: 364, height: 170)
-        case .large: CGSize(width: 364, height: 382)
         }
     }
 }

@@ -227,3 +227,25 @@ public struct WidgetBackground: View {
         }
     }
 }
+
+/// Weather symbol in color. Clouds, rain and snow have multicolor layers; plain suns and moons ("sun.min.fill",
+/// "moon.fill") don't and would draw black, so they get their color explicitly.
+struct WeatherSymbol: View {
+    var name: String
+
+    enum Style: Equatable { case sun, moon, multicolor }
+
+    static func style(_ name: String) -> Style {
+        if name.hasPrefix("sun.") { return .sun }
+        if name.hasPrefix("moon") { return .moon }
+        return .multicolor
+    }
+
+    var body: some View {
+        switch Self.style(name) {
+        case .sun: Image(systemName: name).foregroundStyle(WidgetPalette.yellow)
+        case .moon: Image(systemName: name).symbolRenderingMode(.palette).foregroundStyle(Color(red: 0.98, green: 0.84, blue: 0.40), Color(red: 0.98, green: 0.84, blue: 0.40).opacity(0.7))
+        case .multicolor: Image(systemName: name).symbolRenderingMode(.multicolor)
+        }
+    }
+}

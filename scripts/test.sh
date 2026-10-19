@@ -12,14 +12,18 @@ echo "▸ Campionatore dei widget (compilato come l'estensione, per macOS 14)"
 OUT=build/tests
 mkdir -p "$OUT"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
-xcrun clang -c -O2 -target arm64-apple-macos14.0 -isysroot "$SDK_PATH" -I Sources/CIOKitPrivate/include \
-    Sources/CIOKitPrivate/shim.c -o "$OUT/shim.o"
 xcrun swiftc -target arm64-apple-macos14.0 -sdk "$SDK_PATH" -module-name WidgetSampler \
-    -import-objc-header Sources/CIOKitPrivate/include/CIOKitPrivate.h \
     Sources/MenuStatsWidgetUI/*.swift Sources/MenuStatsWidgets/LiveSampler.swift Tests/WidgetSampler/main.swift \
-    "$OUT/shim.o" -framework SwiftUI -framework IOKit -o "$OUT/widget-sampler"
-# The sampler itself needs real hardware (SMC, battery); on CI runners only the build is checked.
+    -framework SwiftUI -framework IOKit -o "$OUT/widget-sampler"
+# The sampler compares with this Mac's battery and disks; on CI runners only the build is checked.
 if [[ -z ${CI:-} ]]; then "$OUT/widget-sampler"; fi
+
+echo "▸ Estensione dei widget (come in build-app.sh)"
+xcrun swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK_PATH" -parse-as-library -application-extension \
+    -module-name MenuStatsWidgets Sources/MenuStatsWidgetUI/*.swift Sources/MenuStatsWidgets/*.swift \
+    -framework WidgetKit -framework SwiftUI -framework IOKit \
+    -Xlinker -e -Xlinker _NSExtensionMain -o "$OUT/MenuStatsWidgets"
+echo "  ✓ compilata"
 
 echo "▸ Versione delle release"
 REPO=$(mktemp -d)

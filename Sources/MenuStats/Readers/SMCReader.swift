@@ -1,6 +1,5 @@
 import CIOKitPrivate
 import Foundation
-import MenuStatsWidgetUI
 
 struct FanInfo: Identifiable {
     var id: Int
@@ -25,6 +24,32 @@ struct SMCStats {
     var cpuTemperature: Double? { cpuCoreTemperatures.isEmpty ? nil : cpuCoreTemperatures.reduce(0, +) / Double(cpuCoreTemperatures.count) }
     var cpuTemperatureMax: Double? { cpuCoreTemperatures.max() }
     var gpuTemperature: Double? { gpuTemperatures.isEmpty ? nil : gpuTemperatures.reduce(0, +) / Double(gpuTemperatures.count) }
+}
+
+/// SMC temperature keys per chip. "CPU" is the average of the per-core keys, the same figure iStat Menus
+/// shows (verified on M3 Pro against its own history: identical to the average of these 11 keys). The HID
+/// "PMU tdie" sensors sit elsewhere on the die and read ~5–8 °C lower, so they are only a fallback.
+enum SMCSensorMap {
+    struct Keys {
+        var cpuCores: [String]
+        var gpu: [String]
+    }
+
+    static let byChip: [String: Keys] = [
+        "Apple M3 Pro": Keys(
+            cpuCores: ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp0V", "Tp0b", "Tp0h", "Tp0n", "Tp0v", "Tp0z", "Tp17"],
+            gpu: ["Tg01", "Tg05", "Tg0D", "Tg0L", "Tg0V", "Tg0v", "Tg13", "Tg1B", "Tg1l"]
+        ),
+        // MacBook Pro (Mac16,8). The per-core `Tp` keys sit at a 40 °C floor while a core idles, so the CPU figure uses
+        // the `TfC*` die sensors instead: within ~2 °C of iStat Menus on this Mac (idle 35 vs 36, load 44 vs 42).
+        // GPU: the `Tg` sensors that track the GPU cluster (idle: 46-47 vs 46.8 in iStat Menus).
+        "Apple M4 Pro": Keys(
+            cpuCores: ["TfC0", "TfC1", "TfC2", "TfC3", "TfC4"],
+            gpu: ["Tg05", "Tg0S", "Tg0Y", "Tg0k", "Tg0z", "Tg1V", "Tg1l"]
+        ),
+    ]
+
+    static var current: Keys? { Sysctl.string("machdep.cpu.brand_string").flatMap { byChip[$0] } }
 }
 
 /// Fans and power from the SMC. Reading works without root; writing (fan control) would need a privileged helper.

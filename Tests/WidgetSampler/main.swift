@@ -23,10 +23,6 @@ func shell(_ command: String) -> String {
 let data = LiveSampler.sample()
 print("Campionatore dei widget")
 
-if let cpu = data.cpu {
-    check((0...1).contains(cpu.total) && abs(cpu.user + cpu.system - cpu.total) < 0.001, "CPU \(WidgetFormat.percent(cpu.total)) (utente + sistema = totale)")
-} else { check(false, "CPU letta") }
-
 if let memory = data.memory {
     let physical = UInt64(shell("sysctl -n hw.memsize")) ?? 0
     check(memory.total == physical, "memoria totale \(WidgetFormat.bytes(memory.total)) = sysctl hw.memsize")
@@ -42,11 +38,6 @@ if let disk = data.disk {
     check(abs(Double(disk.free) - Double(available)) < 2e9, "disco libero \(WidgetFormat.storage(disk.free)) ≈ df (±2 GB)")
 } else { check(false, "disco letto") }
 
-if let network = data.network {
-    check(network.download >= 0 && network.upload >= 0, "rete ↓ \(WidgetFormat.rate(network.download)) ↑ \(WidgetFormat.rate(network.upload)) su \(network.interface ?? "?")")
-    check(network.address.map { shell("ifconfig \(network.interface ?? "") inet").contains($0) } ?? false, "indirizzo \(network.address ?? "-") = ifconfig")
-}
-
 let pmset = shell("pmset -g batt")
 if let battery = data.battery {
     let percent = pmset.range(of: #"(\d+)%"#, options: .regularExpression).map { Int(pmset[$0].dropLast()) ?? -1 } ?? -1
@@ -56,11 +47,11 @@ if let battery = data.battery {
     check(!pmset.contains("InternalBattery"), "nessuna batteria (Mac senza batteria)")
 }
 
-if SMCSensorMap.current != nil {
-    let temperature = data.temperature?.cpu ?? 0
-    check((20...110).contains(temperature), "temperatura CPU \(WidgetFormat.temperature(temperature, fahrenheit: false, unit: true)) dallo SMC")
-}
-print(data.fans.isEmpty ? "  · nessuna ventola letta" : "  ✓ ventole: " + data.fans.map { String(format: "%.0f rpm", $0.rpm) }.joined(separator: ", "))
+check(data.chip?.hasPrefix("Apple") ?? false, "chip \(data.chip ?? "-")")
+
+let started = Date()
+_ = LiveSampler.sample()
+check(Date().timeIntervalSince(started) < 0.5, "lettura istantanea (\(Int(Date().timeIntervalSince(started) * 1000)) ms)")
 
 print(failures == 0 ? "Campionatore: tutto corretto" : "Campionatore: \(failures) controlli falliti")
 exit(failures == 0 ? 0 : 1)

@@ -1,9 +1,9 @@
 import SwiftUI
 import WidgetKit
 
-// Desktop and Notification Center widgets (macOS 14+). The extension reads the live values itself (LiveSampler),
-// so the widgets work while MenuStats is closed; when the app is running it also reads the snapshot MenuStats
-// writes every minute for what the sandbox can't see: per-minute graphs, Apple's battery health, the weather.
+// Desktop and Notification Center widgets (macOS 14+) for values that change slowly: memory, disk, battery, weather.
+// The extension reads memory, disk and battery itself (LiveSampler), so the widgets work while MenuStats is closed;
+// it also reads the snapshot MenuStats writes every minute for the memory graph, Apple's battery health and the weather.
 
 struct StatsEntry: TimelineEntry {
     var date: Date
@@ -29,38 +29,25 @@ struct StatsProvider: TimelineProvider {
         }
     }
 
-    /// Live values, completed with the app's snapshot where it is recent enough.
+    /// Live values, completed with the app's snapshot.
     static func current() -> WidgetData {
         var data = LiveSampler.sample()
         let now = Date()
-        var graphsFromApp = false
+        var graphFromApp = false
         if let stored = WidgetData.load() {
             let age = now.timeIntervalSince(stored.updated)
             data.fahrenheit = stored.fahrenheit
             if age < 3 * 3600 { data.weather = stored.weather }
             // Apple's official battery health changes slowly: keep it even from an old snapshot.
             if let health = stored.battery?.health, data.battery != nil { data.battery?.health = health }
-            if age < 15 * 60 {
-                if data.temperature == nil { data.temperature = stored.temperature }
-                if data.temperature?.ssd == nil { data.temperature?.ssd = stored.temperature?.ssd }
-                if data.fans.isEmpty { data.fans = stored.fans }
-                data.cpu?.history = stored.cpu?.history ?? []
-                data.memory?.history = stored.memory?.history ?? []
-                data.network?.downloadHistory = stored.network?.downloadHistory ?? []
-                data.network?.uploadHistory = stored.network?.uploadHistory ?? []
-                data.temperature?.history = stored.temperature?.history ?? []
-                graphsFromApp = true
+            if age < 15 * 60, let history = stored.memory?.history, history.count >= 2 {
+                data.memory?.history = history
+                graphFromApp = true
             }
         }
-        // Without the app, graphs come from the widget's own readings (one per refresh).
+        // Without the app, the memory graph comes from the widget's own readings (one per refresh).
         let history = OwnHistory.record(data, at: now)
-        if !graphsFromApp, history.count >= 2 {
-            data.cpu?.history = history.map(\.cpu)
-            data.memory?.history = history.map(\.memory)
-            data.network?.downloadHistory = history.map(\.download)
-            data.network?.uploadHistory = history.map(\.upload)
-            data.temperature?.history = history.compactMap(\.temperature)
-        }
+        if !graphFromApp, history.count >= 2 { data.memory?.history = history.map(\.memory) }
         return data
     }
 }
@@ -69,14 +56,10 @@ struct StatsProvider: TimelineProvider {
 enum OwnHistory {
     struct Point: Codable {
         var date: Date
-        var cpu: Double
         var memory: Double
-        var download: Double
-        var upload: Double
-        var temperature: Double?
     }
 
-    private static let key = "history"
+    private static let key = "memoryHistory"
 
     static func record(_ data: WidgetData, at date: Date) -> [Point] {
         let defaults = UserDefaults.standard
@@ -84,9 +67,7 @@ enum OwnHistory {
             .filter { date.timeIntervalSince($0.date) < 6 * 3600 }
         // Several widgets refresh together: one point per minute is enough.
         if points.last.map({ date.timeIntervalSince($0.date) >= 60 }) ?? true {
-            points.append(Point(date: date, cpu: data.cpu?.total ?? 0, memory: data.memory?.fraction ?? 0,
-                                download: data.network?.download ?? 0, upload: data.network?.upload ?? 0,
-                                temperature: data.temperature?.cpu))
+            points.append(Point(date: date, memory: data.memory?.fraction ?? 0))
             points = Array(points.suffix(48))
             defaults.set(try? JSONEncoder().encode(points), forKey: key)
         }
@@ -129,26 +110,17 @@ extension WidgetSize {
         switch self {
         case .small: .systemSmall
         case .medium: .systemMedium
-        case .large: .systemLarge
         }
     }
 
     init(_ family: WidgetFamily) {
-        switch family {
-        case .systemMedium: self = .medium
-        case .systemLarge, .systemExtraLarge: self = .large
-        default: self = .small
-        }
+        self = family == .systemSmall ? .small : .medium
     }
 }
 
 struct OverviewWidget: ElementWidget { static let element = WidgetElement.overview }
-struct CPUWidget: ElementWidget { static let element = WidgetElement.cpu }
 struct MemoryWidget: ElementWidget { static let element = WidgetElement.memory }
 struct DiskWidget: ElementWidget { static let element = WidgetElement.disk }
-struct NetworkElementWidget: ElementWidget { static let element = WidgetElement.network }
-struct TemperatureWidget: ElementWidget { static let element = WidgetElement.temperature }
-struct FansWidget: ElementWidget { static let element = WidgetElement.fans }
 struct BatteryWidget: ElementWidget { static let element = WidgetElement.battery }
 struct WeatherElementWidget: ElementWidget { static let element = WidgetElement.weather }
 
@@ -156,12 +128,8 @@ struct WeatherElementWidget: ElementWidget { static let element = WidgetElement.
 struct MenuStatsWidgets: WidgetBundle {
     var body: some Widget {
         OverviewWidget()
-        CPUWidget()
         MemoryWidget()
         DiskWidget()
-        NetworkElementWidget()
-        TemperatureWidget()
-        FansWidget()
         BatteryWidget()
         WeatherElementWidget()
     }

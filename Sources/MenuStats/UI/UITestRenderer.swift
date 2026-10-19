@@ -56,27 +56,17 @@ enum UITestRenderer {
     private static func renderWidgetGallery(model: AppModel, dark: Bool, to url: URL) {
         model.setVisibleTab(nil)
         model.tick()
-        let data = model.widgetData(minutes: true, forceWeather: true)
+        let data = model.widgetData(forceWeather: true)
         func tile(_ element: WidgetElement, _ size: WidgetSize) -> some View {
             WidgetPreviewTile(element: element, size: size, data: data)
         }
-        let singles = WidgetElement.allCases.filter { $0 != .overview }
-        let view = HStack(alignment: .top, spacing: 24) {
-            VStack(spacing: 24) {
-                tile(.overview, .large)
-                tile(.overview, .medium)
-                HStack(spacing: 24) { tile(.overview, .small); tile(.cpu, .small) }
+        let elements = WidgetElement.allCases
+        let view = HStack(alignment: .top, spacing: 40) {
+            VStack(alignment: .leading, spacing: 24) {
+                ForEach(elements.prefix(3)) { element in HStack(spacing: 24) { tile(element, .small); tile(element, .medium) } }
             }
-            VStack(spacing: 24) {
-                ForEach(Array(stride(from: 0, to: singles.count, by: 2)), id: \.self) { index in
-                    HStack(spacing: 24) {
-                        tile(singles[index], .small)
-                        if index + 1 < singles.count { tile(singles[index + 1], .small) } else { Color.clear.frame(width: 170, height: 170) }
-                    }
-                }
-            }
-            VStack(spacing: 24) {
-                ForEach(singles) { tile($0, .medium) }
+            VStack(alignment: .leading, spacing: 24) {
+                ForEach(elements.dropFirst(3)) { element in HStack(spacing: 24) { tile(element, .small); tile(element, .medium) } }
             }
         }
         .padding(40)

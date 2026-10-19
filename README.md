@@ -39,8 +39,7 @@ meteo e data. Compatto, preciso e leggero.
   stessa che mostra iStat Menus.
 - **Leggero davvero**: circa l'1% di un core a riposo. Legge spesso solo ciò che stai guardando.
 - **Tuo**: stile per ogni modulo, colori, ordine, sezioni della tendina da mostrare o nascondere.
-- **Widget**: sulla scrivania e nel Centro Notifiche, anche con l'app chiusa. Un elemento alla volta o la
-  panoramica di tutto, in formato piccolo, medio o grande.
+- **Widget**: memoria, disco, batteria e meteo sulla scrivania e nel Centro Notifiche, anche con l'app chiusa.
 - **Si aggiorna da solo**: quando esce una nuova versione compare un'icona nella barra dei menu; un clic e
   MenuStats si scarica, si verifica e si reinstalla, senza comandi e senza un nuovo "Apri comunque".
 
@@ -79,24 +78,24 @@ Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggi
 
 ## 🧱 Widget
 
-Ogni elemento ha il suo widget, e la **Panoramica** li mette tutti insieme. Fai clic destro sulla scrivania ▸
-**Modifica widget…** e cerca *MenuStats*: CPU, Memoria, Disco, Rete, Temperature, Ventole, Batteria e Meteo in
-formato piccolo o medio, la Panoramica anche grande. In Impostazioni ▸ **Widget** trovi l'anteprima di ognuno con i
-tuoi dati.
+Widget per la scrivania e il Centro Notifiche, in formato piccolo e medio: **Memoria**, **Disco**, **Batteria**,
+**Meteo** e la **Panoramica** con tutti e quattro. Fai clic destro sulla scrivania ▸ **Modifica widget…** e cerca
+*MenuStats*. In Impostazioni ▸ **Widget** trovi l'anteprima di ognuno con i tuoi dati.
 
-<p align="center"><img src="docs/screenshots/widgets.png" alt="Tutti i widget di MenuStats sulla scrivania" width="100%"></p>
+<p align="center"><img src="docs/screenshots/widgets.png" alt="I widget di MenuStats sulla scrivania" width="100%"></p>
 
 <details>
-<summary><b>Come funzionano</b></summary>
+<summary><b>Perché solo questi, e come funzionano</b></summary>
 <br>
 
-- Sono un'estensione WidgetKit in Swift e SwiftUI, in sandbox. A ogni aggiornamento legge da sola CPU, memoria,
-  disco, rete, batteria, temperature e ventole (SMC), quindi **funziona anche con MenuStats chiuso**.
-- Con MenuStats aperto aggiunge i grafici dell'ultima ora, la salute ufficiale della batteria e il meteo, che
-  l'app scrive ogni minuto in `~/Library/Application Support/MenuStats/widget.json`. È l'unica cartella che
-  l'estensione può leggere. Ad app chiusa i grafici usano le letture dei widget stessi.
-- macOS decide quante volte ridisegnare un widget, di solito ogni 5-15 minuti. L'ora in alto a destra dice quando
-  sono stati letti i dati.
+- macOS decide quando ridisegnare un widget: nella pratica ogni 1-2 minuti nel caso migliore, anche se l'app
+  chiede di più. Per questo i widget mostrano solo valori che cambiano lentamente. CPU, rete, temperature e
+  ventole restano nella barra dei menu, che si aggiorna ogni 2 secondi.
+- Sono un'estensione WidgetKit in Swift e SwiftUI, in sandbox. Leggono da soli memoria, disco e batteria, quindi
+  **funzionano anche con MenuStats chiuso**.
+- Il meteo, il grafico della memoria nell'ultima ora e la salute ufficiale della batteria arrivano dall'app, che
+  li scrive ogni minuto in `~/Library/Application Support/MenuStats/widget.json`. È l'unica cartella che
+  l'estensione può leggere.
 
 </details>
 
@@ -263,7 +262,7 @@ git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
 
 | Comando | A cosa serve |
 |---|---|
-| `./scripts/test.sh` | test unitari, campionatore dei widget confrontato con macOS, versioni delle release |
+| `./scripts/test.sh` | test unitari, letture dei widget confrontate con macOS, estensione, versioni delle release |
 | `swift run MenuStats --verify` | confronta i valori con gli strumenti di macOS |
 | `swift run MenuStats --dump` | stampa una lettura di tutto |
 | `swift run -c release MenuStats --benchmark` | costo di ogni lettore e del disegno |
