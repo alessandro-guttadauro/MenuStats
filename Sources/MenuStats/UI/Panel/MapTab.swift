@@ -64,6 +64,7 @@ final class MapLocator: NSObject, ObservableObject, CLLocationManagerDelegate {
 struct MapTab: View {
     var mapHeight: CGFloat = 240
     @StateObject private var locator = MapLocator()
+    @StateObject private var nearby = NearbyDevicesMonitor()
     @ObservedObject private var settings = Settings.shared
 
     var body: some View {
@@ -89,7 +90,9 @@ struct MapTab: View {
                 }
             }
 
-            Card(title: "Dispositivi e persone") {
+            NearbyCard(monitor: nearby)
+
+            Card(title: "iPhone, AirTag e amici") {
                 Text("Apple non permette ad altre app di leggere le posizioni di Dov'è (iPhone, AirTag, amici): si vedono solo nell'app Dov'è.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button { Self.openFindMy() } label: { Label("Apri Dov'è", systemImage: "location.circle") }

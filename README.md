@@ -79,6 +79,11 @@ meteo, data e un modulo per tenere il Mac sveglio. Compatto, preciso e leggero.
 | **Data e ora** · *facoltativo* | 7 disposizioni, 12/24 ore | calendario del mese, settimana, alba e tramonto |
 | **Sveglio** · *facoltativo* | tazza con vapore, tempo rimanente | durata, durata personalizzata, finché un file si scarica, un'app è aperta o un'IA lavora; schermo acceso o libero, fine con batteria scarica |
 
+La scheda **Mappa** mostra dove si trova il Mac e, sotto, **i tuoi dispositivi vicini**: accessori Bluetooth associati
+(AirPods, tastiere, mouse, controller) e gli iPhone, iPad e Apple Watch che macOS riconosce, su un radar con la distanza stimata
+dal segnale. Sono solo i dispositivi che macOS già conosce (la stessa lista di Impostazioni di Sistema ▸ Bluetooth):
+MenuStats non cerca né mostra dispositivi di altre persone. Il Bluetooth dà la distanza, non la direzione.
+
 Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
 Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
 
@@ -189,7 +194,8 @@ eccezioni, tutte **spente di default**:
 | Aggiornamenti | una richiesta all'API delle release di GitHub | ogni 6 ore (disattivabile), e il download solo quando lo chiedi |
 | IP pubblico | una richiesta a ipwho.is (e api4.ipify.org per l'IPv4) | opzione attiva e scheda Rete aperta, al massimo ogni 5 minuti |
 
-Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
+I dispositivi vicini della scheda Mappa si leggono sul Mac con `system_profiler`, solo a scheda aperta, senza
+scansionare il Bluetooth e senza permessi aggiuntivi; nulla viene salvato o inviato. Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
 dimensioni del file che scegli di seguire. Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
 8 giorni in `~/Library/Application Support/MenuStats`.
 
@@ -397,6 +403,9 @@ Grazie a chi ha già contribuito:
   in automatico con stress termico.
 - Il limite di carica parte dall'80%, come in macOS.
 - Con "una voce per modulo" la distanza tra le voci la decide macOS: la voce unica è più compatta.
+- I dispositivi vicini hanno la distanza ma non la direzione, e la stima può sbagliare di diversi metri (muri, corpo e
+  tasche cambiano il segnale). iPhone, iPad e Apple Watch compaiono solo quando macOS ne misura il segnale e li riconosce. Le
+  posizioni su mappa di Dov'è (iPhone, AirTag, amici) restano inaccessibili ad altre app.
 - Sveglio non tiene acceso il Mac a coperchio chiuso. Con "finché l'IA lavora", uno strumento interrotto senza
   avviso (Esc) libera il Mac solo allo scadere del tempo di tolleranza. "Finché un'app è aperta" segue le app con
   finestra, non i processi di sistema.
