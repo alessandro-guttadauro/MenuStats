@@ -54,32 +54,23 @@ final class FitConfirmationTests: XCTestCase {
         XCTAssertEqual(fit.observe(hidden: true, signature: 100, at: t0.addingTimeInterval(6.4)), .shrink)
     }
 
-    func testRestoreBacksOffWhenAWiderBarDoesNotFit() {
+    func testRestoreStopsAfterAWiderBarDoesNotFitUntilTheRoomMayHaveChanged() {
         var fit = FitConfirmation()
         XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
         fit.beganRestore()
         fit.layoutChanged(at: t0, signature: 1)
         _ = fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(2))
         XCTAssertEqual(fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(3)), .shrink)
-        XCTAssertEqual(fit.restoreDelay, 20)
-        // The next attempt fails too: 40, and the delay is capped.
-        fit.beganRestore()
-        fit.layoutChanged(at: t0.addingTimeInterval(30), signature: 3)
-        _ = fit.observe(hidden: true, signature: 4, at: t0.addingTimeInterval(32))
-        XCTAssertEqual(fit.observe(hidden: true, signature: 4, at: t0.addingTimeInterval(33)), .shrink)
-        XCTAssertEqual(fit.restoreDelay, 40)
+        XCTAssertNil(fit.restoreDelay, "no more tries: the bar would flicker")
+        fit.roomMayHaveChanged()
+        XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
     }
 
-    func testRestoreDelayResetsWhenTheWiderBarFits() {
+    func testRestoreDelayStaysShortWhenTheWiderBarFits() {
         var fit = FitConfirmation()
         fit.beganRestore()
         fit.layoutChanged(at: t0, signature: 1)
-        _ = fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(2))
-        _ = fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(3)) // did not fit: 20
-        XCTAssertEqual(fit.restoreDelay, 20)
-        fit.beganRestore()
-        fit.layoutChanged(at: t0.addingTimeInterval(30), signature: 3)
-        XCTAssertEqual(fit.observe(hidden: false, signature: 4, at: t0.addingTimeInterval(32)), .fine)
+        XCTAssertEqual(fit.observe(hidden: false, signature: 2, at: t0.addingTimeInterval(2)), .fine)
         XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
     }
 

@@ -10,7 +10,8 @@ import Foundation
 /// - an item must look hidden for a while before the bar is shrunk;
 /// - only a couple of shrinks happen in a row (then one more every so often), so a reading that stays "hidden" whatever
 ///   the width, because something else is going on, costs at most a few modules and not the whole bar;
-/// - a shrunk bar tries one step wider every so often, backing off when that does not fit.
+/// - a shrunk bar tries one step wider after a while; if that does not fit it stops trying until the room may have
+///   changed (an app launched or quit, a new Space, a screen change), so the bar does not flicker.
 struct FitConfirmation {
     enum Verdict: Equatable {
         /// Visible, or not yet to be trusted: nothing to do.
@@ -31,7 +32,6 @@ struct FitConfirmation {
     static let shrinkBudget = 2
     static let shrinkRefill: TimeInterval = 20
     static let firstRestoreDelay: TimeInterval = 10
-    static let maxRestoreDelay: TimeInterval = 600
 
     private var settledAt = Date.distantPast
     private var changedAt = Date.distantPast
@@ -39,7 +39,8 @@ struct FitConfirmation {
     private var hiddenSince: Date?
     private var budget = FitConfirmation.shrinkBudget
     private var budgetCountedAt = Date.distantPast
-    private(set) var restoreDelay = FitConfirmation.firstRestoreDelay
+    /// Seconds before trying a wider bar; nil after a try that did not fit, until `roomMayHaveChanged()`.
+    private(set) var restoreDelay: TimeInterval? = FitConfirmation.firstRestoreDelay
     private var restoring = false
 
     /// The items were created, resized or reshaped. `signature` summarizes where macOS put them (for example the sum of
@@ -78,13 +79,16 @@ struct FitConfirmation {
             hiddenSince = nil
             if restoring {
                 restoring = false
-                restoreDelay = min(restoreDelay * 2, Self.maxRestoreDelay) // that step did not fit: wait longer next time
+                restoreDelay = nil // that step did not fit: stop trying until the room may have changed
             }
             return .shrink
         }
         return .wait(0.5)
     }
 
-    /// A step wider was just tried; if it does not fit the next delay doubles.
+    /// A step wider was just tried; if it does not fit, no more tries until `roomMayHaveChanged()`.
     mutating func beganRestore() { restoring = true }
+
+    /// Something that changes the room in the menu bar happened: wider bars are worth trying again.
+    mutating func roomMayHaveChanged() { restoreDelay = Self.firstRestoreDelay }
 }

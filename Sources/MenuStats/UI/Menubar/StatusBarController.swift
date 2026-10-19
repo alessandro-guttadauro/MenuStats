@@ -111,7 +111,7 @@ final class StatusBarController: NSObject {
     private var restoreWork: DispatchWorkItem?
 
     private func scheduleRestore() {
-        guard restoreWork == nil else { return }
+        guard restoreWork == nil, let delay = confirmation.restoreDelay else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             restoreWork = nil
@@ -123,7 +123,7 @@ final class StatusBarController: NSObject {
             rebuild()
         }
         restoreWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + confirmation.restoreDelay, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// macOS places items with a smaller preferred position closer to the clock. Written before each item is
@@ -191,6 +191,7 @@ final class StatusBarController: NSObject {
     /// Something that changes the room in the menu bar happened: start again from the full bar.
     private func resetFit() {
         debug("resetFit (livello \(fitLevel))")
+        confirmation.roomMayHaveChanged()
         guard fitLevel > 0 else { scheduleFitCheck(); return }
         restoreWork?.cancel()
         restoreWork = nil
