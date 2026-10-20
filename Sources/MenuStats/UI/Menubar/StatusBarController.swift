@@ -115,7 +115,7 @@ final class StatusBarController: NSObject {
         guard let values = UserDefaults.standard.array(forKey: geometryKey) as? [Double], values.count == 3,
               let screen = NSScreen.screens.first(where: { $0.auxiliaryTopRightArea != nil }),
               abs(screen.frame.width - values[2]) < 1, abs((screen.auxiliaryTopRightArea?.minX ?? 0) - values[1]) < 1 else { return nil }
-        return (values[0], values[1])
+        return (CGFloat(values[0]), CGFloat(values[1]))
     }
     private var rebuilding = false
     /// When the items were last created: macOS needs a moment to place them, and until then their frames are wrong.
