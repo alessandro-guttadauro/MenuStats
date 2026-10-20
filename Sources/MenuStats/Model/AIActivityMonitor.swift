@@ -49,6 +49,8 @@ final class AIActivityMonitor {
     private var agents: [(pid: pid_t, tool: String)] = []
     private var agentsTime = -Double.infinity
     private var lastCPU: [pid_t: UInt64] = [:]
+    /// Share of one core used by each agent's process tree in the last sample.
+    private var lastShare: [pid_t: Double] = [:]
     private var lastSampleTime: Double?
     /// Busy readings in a row per agent: a CPU spike alone (an agent starting up) doesn't count.
     private var busyStreak: [pid_t: Int] = [:]
@@ -165,6 +167,7 @@ final class AIActivityMonitor {
                 if let previous = lastCPU[pid], time >= previous { total += time - previous }
             }
             let share = elapsed > 0 ? Double(total) / 1e9 / elapsed : 0
+            lastShare[agent.pid] = share
             let streak = share > Self.busyCPU ? (busyStreak[agent.pid] ?? 0) + 1 : 0
             busyStreak[agent.pid] = streak
             if streak >= 2 { busy.append(agent.tool) }
@@ -183,9 +186,38 @@ final class AIActivityMonitor {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         return pids.prefix(Int(count)).compactMap { pid in
             guard pid > 0, proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
-            let name = (String(cString: path) as NSString).lastPathComponent.lowercased()
-            return agentProcesses[name].map { (pid, $0) }
+            let executable = String(cString: path)
+            return Self.agentTool(forExecutable: executable).map { (pid, $0) }
         }
+    }
+
+    /// The tool an executable belongs to, if it is an AI agent. The name must match exactly: the Claude desktop app's
+    /// own process is "Claude" (capital C) and its window helpers use the CPU all the time, so counting it kept
+    /// the Mac awake for as long as the app was open. Claude Code inside the app runs as a separate lowercase
+    /// "claude" executable, which is the one that counts. Other GUI app executables never count either.
+    static func agentTool(forExecutable path: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        guard let tool = agentProcesses[name] else { return nil }
+        // An app's main executable (…/Name.app/Contents/MacOS/Name) is an interface, not an agent, unless it is one of
+        // the command-line agents shipped as a minimal bundle (Claude Code's "claude.app", Codex's "CodexCLI.app").
+        if let range = path.range(of: ".app/Contents/MacOS/") {
+            let bundle = (String(path[..<range.lowerBound]) as NSString).lastPathComponent
+            let cliBundles: Set<String> = ["claude", "CodexCLI"]
+            if !cliBundles.contains(bundle) { return nil }
+        }
+        return tool
+    }
+
+    /// What the last sample saw, for `--ai-status`: transcripts written recently and each agent's CPU.
+    func explain(now: Date = Date()) -> [String] {
+        var lines = activeTranscripts(now: now).map { "conversazione aggiornata: \($0)" }
+        for agent in agents {
+            let share = lastShare[agent.pid] ?? 0
+            let busy = (busyStreak[agent.pid] ?? 0) >= 2
+            lines.append(String(format: "processo %@ (pid %d): CPU %.1f%%%@", agent.tool, agent.pid, share * 100, busy ? " → al lavoro" : ""))
+        }
+        if lines.isEmpty { lines = ["nessun agente IA in esecuzione"] }
+        return lines
     }
 
     private static func descendants(of pid: pid_t, depth: Int = 0) -> [pid_t] {

@@ -595,8 +595,14 @@ struct ModuleSettings: View {
             if HardwarePresence.hasBattery { AwakeLidSettings(awake: model.awake, hardware: model.hardware, settings: settings) }
             SettingsSection(title: "Sessione",
                             footnote: "Come il comando caffeinate, MenuStats chiede a macOS di non andare in stop per inattività, senza password e senza helper. Una sessione si avvia dalla scheda Sveglio e finisce da sola allo scadere del tempo. Chiudere il coperchio mette il Mac in stop, a meno di attivare l'opzione Coperchio chiuso.") {
-                Toggle("Lascia spegnere lo schermo", isOn: Binding(get: { settings.awakeAllowDisplaySleep },
-                                                                   set: { model.awake.setAllowDisplaySleep($0) }))
+                Toggle("Lascia spegnere lo schermo", isOn: Binding(get: { settings.awakeAllowDisplaySleep }, set: { allow in
+                    // Timed, download and app sessions; the AI session has its own switch below.
+                    if model.awake.state.isActive, !model.awake.state.isAI {
+                        model.awake.setAllowDisplaySleep(allow)
+                    } else {
+                        settings.awakeAllowDisplaySleep = allow
+                    }
+                }))
                 if HardwarePresence.hasBattery {
                     Toggle("Termina la sessione con batteria scarica", isOn: $settings.awakeEndOnLowBattery)
                     ThresholdSlider(title: "Batteria sotto", value: $settings.awakeLowBatteryThreshold, range: 0.05...0.5, step: 0.05,
@@ -916,7 +922,14 @@ struct AwakeAISettings: View {
                         footnote: "MenuStats riconosce da solo quando Claude Code (anche dentro l'app Claude), Codex, Gemini CLI, OpenCode e altri agenti stanno lavorando: le loro conversazioni vengono salvate a ogni passo e i loro processi, con i comandi che lanciano, usano la CPU. Legge solo le date dei file, mai il contenuto, e nulla esce dal Mac. Il Mac resta sveglio finché c'è attività e si riaddormenta normalmente quando l'IA è ferma da quanto scelto qui sotto.") {
             Toggle("Resta sveglio mentre un'IA lavora", isOn: Binding(get: { settings.awakeWatchAI }, set: { model.awake.setWatchAI($0) }))
             if settings.awakeWatchAI { AIStatusRow(awake: model.awake) }
-            Toggle("Lascia spegnere lo schermo in questo caso", isOn: $settings.awakeAIAllowDisplaySleep)
+            Toggle("Lascia spegnere lo schermo in questo caso", isOn: Binding(get: { settings.awakeAIAllowDisplaySleep }, set: { allow in
+                // Applies to the AI session running now too, not only to the next one.
+                if model.awake.state.isAI {
+                    model.awake.setAllowDisplaySleep(allow)
+                } else {
+                    settings.awakeAIAllowDisplaySleep = allow
+                }
+            }))
             HStack {
                 Text("Considera finito il lavoro dopo")
                 Picker("", selection: $settings.awakeAIGraceMinutes) {

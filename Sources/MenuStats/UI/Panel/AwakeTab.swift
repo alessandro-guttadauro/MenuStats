@@ -154,7 +154,7 @@ struct AwakeTab: View {
 
     private var optionsCard: some View {
         Card(title: "Opzioni") {
-            Toggle(isOn: Binding(get: { settings.awakeAllowDisplaySleep }, set: { awake.setAllowDisplaySleep($0) })) {
+            Toggle(isOn: Binding(get: { state.isActive ? state.allowsDisplaySleep : settings.awakeAllowDisplaySleep }, set: { awake.setAllowDisplaySleep($0) })) {
                 Label("Lascia spegnere lo schermo", systemImage: "display")
             }
             .toggleStyle(.switch).controlSize(.small)

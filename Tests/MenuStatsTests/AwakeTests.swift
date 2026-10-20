@@ -86,6 +86,53 @@ final class AwakeTests: XCTestCase {
         XCTAssertEqual(Format.clock(3725), "1:02:05")
     }
 
+    /// Starts when an AI works, survives a short pause, ends after the grace period, and a manual stop is respected.
+    func testAISessionEndsWhenTheWorkIsDone() {
+        let settings = Settings.shared
+        let saved = (settings.awakeAIGraceMinutes, settings.awakeLidClosed)
+        defer { settings.awakeAIGraceMinutes = saved.0; settings.awakeLidClosed = saved.1 }
+        settings.awakeAIGraceMinutes = 3
+        settings.awakeLidClosed = false
+        let awake = AwakeController(settings: settings)
+        var working = ["Claude Code"]
+        awake.aiReading = { AIActivityMonitor.Reading(sessions: working) }
+        let start = Date()
+
+        awake.checkAI(now: start)
+        XCTAssertTrue(awake.state.isAI)
+        XCTAssertEqual(awake.state.aiTools, ["Claude Code"])
+
+        working = [] // the model thinks: no output, no CPU
+        awake.checkAI(now: start.addingTimeInterval(10))
+        awake.checkAI(now: start.addingTimeInterval(150))
+        XCTAssertTrue(awake.state.isAI, "a pause shorter than 3 minutes keeps the session")
+
+        working = ["Claude Code"]
+        awake.checkAI(now: start.addingTimeInterval(160))
+        working = []
+        awake.checkAI(now: start.addingTimeInterval(170))
+        awake.checkAI(now: start.addingTimeInterval(170 + 179))
+        XCTAssertTrue(awake.state.isAI, "the 3 minutes restart from the last activity")
+        awake.checkAI(now: start.addingTimeInterval(170 + 181))
+        XCTAssertFalse(awake.state.isActive, "ended 3 minutes after the work stopped")
+        XCTAssertEqual(awake.lastEndReason, "L'IA ha finito di lavorare")
+
+        // Stopped by hand while the AI still works: it does not restart until the AI has been idle.
+        working = ["Codex"]
+        awake.checkAI(now: start.addingTimeInterval(400))
+        XCTAssertTrue(awake.state.isAI)
+        awake.stop()
+        awake.checkAI(now: start.addingTimeInterval(410))
+        XCTAssertFalse(awake.state.isActive)
+        working = []
+        awake.checkAI(now: start.addingTimeInterval(420))
+        awake.checkAI(now: start.addingTimeInterval(420 + 181))
+        working = ["Codex"]
+        awake.checkAI(now: start.addingTimeInterval(700))
+        XCTAssertTrue(awake.state.isAI, "re-armed after the AI was idle")
+        awake.stop()
+    }
+
     func testTimedSessionStartsAndStops() throws {
         let awake = AwakeController(settings: .shared)
         awake.start(minutes: 60)

@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Foundation
 import IOKit.pwr_mgt
 
@@ -22,6 +23,7 @@ struct AwakeState: Equatable {
     var endDate: Date?
     var startDate: Date?
     var allowsDisplaySleep = false
+    var isAI: Bool { if case .ai = kind { return isActive } else { return false } }
     /// For AI sessions: the tools at work, one entry per session ("Claude Code", "Codex").
     var aiTools: [String] = []
 
@@ -61,6 +63,9 @@ final class AwakeController: ObservableObject {
     private var lidTimer: Timer?
     /// Keeps App Nap from stretching `lidTimer` while the displays are off, which would let the lease run out.
     private var lidActivity: NSObjectProtocol?
+    /// While the lid is held awake ("SleepDisabled") macOS may not turn the display off by itself: when the session
+    /// lets the display sleep, this timer does it after the display-sleep delay set in macOS.
+    private var displayTimer: Timer?
     private var systemAssertion = IOPMAssertionID(kIOPMNullAssertionID)
     private var displayAssertion = IOPMAssertionID(kIOPMNullAssertionID)
     private var timer: Timer?
@@ -76,6 +81,8 @@ final class AwakeController: ObservableObject {
     static let aiDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".menustats/ai")
     private var aiTimer: Timer?
     private lazy var aiMonitor = AIActivityMonitor()
+    /// Replaces the real detection in tests.
+    var aiReading: (() -> AIActivityMonitor.Reading)?
     /// When the last AI activity stopped; the session ends once this is older than the chosen grace period.
     private var aiIdleSince: Date?
     /// After the user ends an AI session by hand, the same activity does not restart it; it re-arms once the AI is idle.
@@ -208,6 +215,7 @@ final class AwakeController: ObservableObject {
     private func holdLid() {
         guard let hardware else { return }
         hardware.setLidAwake(true)
+        startDisplayGuard()
         guard lidTimer == nil else { return }
         let timer = Timer(timeInterval: 60, repeats: true) { [weak hardware] _ in hardware?.renewLidAwake() }
         timer.tolerance = 10
@@ -218,11 +226,56 @@ final class AwakeController: ObservableObject {
     }
 
     private func releaseLid() {
+        displayTimer?.invalidate()
+        displayTimer = nil
         lidTimer?.invalidate()
         lidTimer = nil
         if let lidActivity { ProcessInfo.processInfo.endActivity(lidActivity) }
         lidActivity = nil
         hardware?.setLidAwake(false)
+    }
+
+    // MARK: - Display sleep while the lid is held
+
+    private func startDisplayGuard() {
+        guard displayTimer == nil else { return }
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.sleepDisplayIfIdle() }
+        timer.tolerance = 5
+        RunLoop.main.add(timer, forMode: .common)
+        displayTimer = timer
+    }
+
+    private func sleepDisplayIfIdle() {
+        guard state.isActive, state.allowsDisplaySleep, let minutes = Self.displaySleepMinutes(), minutes > 0,
+              CGDisplayIsAsleep(CGMainDisplayID()) == 0 else { return }
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+        guard idle >= Double(minutes) * 60 else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["displaysleepnow"]
+        try? process.run()
+    }
+
+    /// "displaysleep" from the active power settings (`pmset -g`), in minutes; 0 means never.
+    static func displaySleepMinutes() -> Int? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["-g"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return parseDisplaySleep(output)
+    }
+
+    static func parseDisplaySleep(_ pmsetOutput: String) -> Int? {
+        for line in pmsetOutput.split(separator: "\n") {
+            let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if fields.count >= 2, fields[0] == "displaysleep" { return Int(fields[1]) }
+        }
+        return nil
     }
 
     // MARK: - AI activity
@@ -279,9 +332,8 @@ final class AwakeController: ObservableObject {
         return data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 
-    private func checkAI() {
-        let reading = aiMonitor.sample(hookStaleMinutes: settings.awakeAIStaleMinutes)
-        let now = Date()
+    func checkAI(now: Date = Date()) {
+        let reading = aiReading?() ?? aiMonitor.sample(hookStaleMinutes: settings.awakeAIStaleMinutes)
         if reading.isWorking { aiIdleSince = nil } else if aiIdleSince == nil { aiIdleSince = now }
         // Pauses while a model thinks write nothing and use no CPU: only a long quiet spell means the work is done.
         let finished = aiIdleSince.map { now.timeIntervalSince($0) >= Double(settings.awakeAIGraceMinutes) * 60 } ?? false
@@ -289,6 +341,7 @@ final class AwakeController: ObservableObject {
         if case .ai = state.kind, state.isActive {
             if finished {
                 stop(reason: "L'IA ha finito di lavorare")
+                aiSnoozed = false // only a manual stop holds back the next AI session
             } else if reading.isWorking, state.aiTools != reading.sessions {
                 state.kind = .ai(working: reading.sessions.count)
                 state.aiTools = reading.sessions

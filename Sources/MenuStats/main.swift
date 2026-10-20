@@ -42,6 +42,19 @@ if arguments.contains("--install-helper") { HardwareTest.install(true); exit(0) 
 if arguments.contains("--uninstall-helper") { HardwareTest.install(false); exit(0) }
 if arguments.contains("--lid-test") { HardwareTest.lidTest() }
 if arguments.contains("--lock-test") { HardwareTest.lockTest() }
+// `--ai-status`: what "Sveglio finché l'IA lavora" sees, every 3 seconds for 30 seconds.
+if arguments.contains("--ai-status") {
+    let monitor = AIActivityMonitor()
+    for round in 0..<11 {
+        let reading = monitor.sample(hookStaleMinutes: Settings.shared.awakeAIStaleMinutes)
+        if round > 0 {
+            print("\(Date().formatted(date: .omitted, time: .standard)) — \(reading.isWorking ? AwakeController.describe(reading.sessions) : "nessuna IA al lavoro")")
+            monitor.explain().forEach { print("   \($0)") }
+        }
+        Thread.sleep(forTimeInterval: 3)
+    }
+    exit(0)
+}
 if let flag = arguments.firstIndex(of: "--fan-test") {
     let fan = arguments.count > flag + 1 ? Int(arguments[flag + 1]) ?? 0 : 0
     let rpm = arguments.count > flag + 2 ? Double(arguments[flag + 2]) ?? 3000 : 3000

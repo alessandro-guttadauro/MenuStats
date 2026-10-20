@@ -83,3 +83,23 @@ final class AIActivityTests: XCTestCase {
         XCTAssertEqual(monitor.sample(hookStaleMinutes: 30).sessions, ["IA"])
     }
 }
+
+final class AIAgentMatchTests: XCTestCase {
+    func testOnlyAgentExecutablesCount() {
+        // Claude Code inside the Claude app, and the CLI: yes.
+        XCTAssertEqual(AIActivityMonitor.agentTool(forExecutable: "/Users/x/Library/Application Support/Claude/claude-code/2.1/abc/claude.app/Contents/MacOS/claude"), "Claude Code")
+        XCTAssertEqual(AIActivityMonitor.agentTool(forExecutable: "/opt/homebrew/bin/claude"), "Claude Code")
+        XCTAssertEqual(AIActivityMonitor.agentTool(forExecutable: "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"), "Codex")
+        // The Claude desktop app itself (its window helpers always use CPU): no.
+        XCTAssertNil(AIActivityMonitor.agentTool(forExecutable: "/Applications/Claude.app/Contents/MacOS/Claude"))
+        XCTAssertNil(AIActivityMonitor.agentTool(forExecutable: "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"))
+        XCTAssertNil(AIActivityMonitor.agentTool(forExecutable: "/Applications/Fake.app/Contents/MacOS/claude"), "a GUI app named claude")
+        XCTAssertNil(AIActivityMonitor.agentTool(forExecutable: "/usr/bin/node"))
+    }
+
+    func testDisplaySleepFromPmset() {
+        let output = " Sleep On Power Button 1\n sleep                1 (sleep prevented by powerd)\n displaysleep         5\n disksleep            10\n"
+        XCTAssertEqual(AwakeController.parseDisplaySleep(output), 5)
+        XCTAssertNil(AwakeController.parseDisplaySleep("nothing here"))
+    }
+}
