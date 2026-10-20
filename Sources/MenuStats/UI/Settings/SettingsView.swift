@@ -54,30 +54,33 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $navigation.page) {
-                Section {
-                    row(.general)
-                    row(.menubar)
+            // The quit button sits below the list, not over it: an inset floats over the sidebar's glass and the
+            // list scrolls underneath it, so the last rows showed through the button.
+            VStack(spacing: 0) {
+                List(selection: $navigation.page) {
+                    Section {
+                        row(.general)
+                        row(.menubar)
+                    }
+                    Section("Moduli") {
+                        ForEach(ModuleID.allCases.filter { $0.isAvailable || $0 == .fans }) { row(.module($0)) }
+                    }
+                    Section {
+                        row(.widgets)
+                        row(.updates)
+                        row(.map)
+                        row(.notifications)
+                        row(.about)
+                    }
                 }
-                Section("Moduli") {
-                    ForEach(ModuleID.allCases.filter { $0.isAvailable || $0 == .fans }) { row(.module($0)) }
-                }
-                Section {
-                    row(.widgets)
-                    row(.updates)
-                    row(.map)
-                    row(.notifications)
-                    row(.about)
-                }
-            }
-            .navigationSplitViewColumnWidth(190)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Divider()
                 Button(role: .destructive) { NSApp.terminate(nil) } label: {
                     Label("Esci da MenuStats", systemImage: "power").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
                 .padding(10)
             }
+            .navigationSplitViewColumnWidth(190)
         } detail: {
             ScrollView {
                 detail
@@ -888,6 +891,20 @@ struct AwakeLidSettings: View {
     }
 }
 
+/// What the AI watcher sees right now.
+private struct AIStatusRow: View {
+    @ObservedObject var awake: AwakeController
+
+    var body: some View {
+        let working: Bool = { if case .ai = awake.state.kind, awake.state.isActive { return true } else { return false } }()
+        HStack(spacing: 6) {
+            Circle().fill(working ? Color.green : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
+            Text(working ? AwakeController.describe(awake.state.aiTools) + ": il Mac resta sveglio." : "Nessuna IA al lavoro in questo momento.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+    }
+}
+
 /// "Stay awake while an AI works": the switch, its options and the hooks that make AI tools report their activity.
 struct AwakeAISettings: View {
     var model: AppModel
@@ -896,29 +913,35 @@ struct AwakeAISettings: View {
 
     var body: some View {
         SettingsSection(title: "Finché l'IA lavora",
-                        footnote: "Ogni strumento IA segnala che sta lavorando creando un file in ~/.menustats/ai e lo cancella quando ha finito. MenuStats tiene sveglio il Mac finché c'è almeno un file recente, poi lascia andare. Un segnale non rinnovato per il tempo scelto qui sotto viene ignorato (per esempio dopo uno stop con Esc, che non avvisa la fine).") {
+                        footnote: "MenuStats riconosce da solo quando Claude Code (anche dentro l'app Claude), Codex, Gemini CLI, OpenCode e altri agenti stanno lavorando: le loro conversazioni vengono salvate a ogni passo e i loro processi, con i comandi che lanciano, usano la CPU. Legge solo le date dei file, mai il contenuto, e nulla esce dal Mac. Il Mac resta sveglio finché c'è attività e si riaddormenta normalmente quando l'IA è ferma da quanto scelto qui sotto.") {
             Toggle("Resta sveglio mentre un'IA lavora", isOn: Binding(get: { settings.awakeWatchAI }, set: { model.awake.setWatchAI($0) }))
+            if settings.awakeWatchAI { AIStatusRow(awake: model.awake) }
             Toggle("Lascia spegnere lo schermo in questo caso", isOn: $settings.awakeAIAllowDisplaySleep)
             HStack {
-                Text("Ignora i segnali fermi da")
-                Picker("", selection: $settings.awakeAIStaleMinutes) {
-                    ForEach([5, 10, 30, 60, 120], id: \.self) { Text("\($0) min").tag($0) }
+                Text("Considera finito il lavoro dopo")
+                Picker("", selection: $settings.awakeAIGraceMinutes) {
+                    ForEach([1, 3, 5, 10, 15], id: \.self) { Text("\($0) min senza attività").tag($0) }
                 }
                 .labelsHidden().fixedSize()
             }
-            HStack(spacing: 8) {
-                Button("Copia hook per Claude Code") { copy(AwakeController.claudeCodeHooksJSON(), "hook") }
-                Button("Copia comandi generici") {
-                    copy("# inizio (e ogni volta che lavora ancora)\n\(AwakeController.aiStartCommand(name: "nome-strumento"))\n# fine\n\(AwakeController.aiStopCommand(name: "nome-strumento"))\n", "comandi")
+            DisclosureGroup("Avanzate: segnali manuali (hook)") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Per strumenti che MenuStats non riconosce: all'inizio del lavoro creano un file in ~/.menustats/ai e alla fine lo cancellano.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Button("Copia hook per Claude Code") { copy(AwakeController.claudeCodeHooksJSON(), "hook") }
+                        Button("Copia comandi generici") {
+                            copy("# inizio (e ogni volta che lavora ancora)\n\(AwakeController.aiStartCommand(name: "nome-strumento"))\n# fine\n\(AwakeController.aiStopCommand(name: "nome-strumento"))\n", "comandi")
+                        }
+                        Button("Apri la cartella") {
+                            try? FileManager.default.createDirectory(at: AwakeController.aiDirectory, withIntermediateDirectories: true)
+                            NSWorkspace.shared.open(AwakeController.aiDirectory)
+                        }
+                    }
+                    if let copied { Label("Copiati: \(copied)", systemImage: "checkmark.circle").font(.system(size: 11)).foregroundStyle(.secondary) }
                 }
-                Button("Apri la cartella") {
-                    try? FileManager.default.createDirectory(at: AwakeController.aiDirectory, withIntermediateDirectories: true)
-                    NSWorkspace.shared.open(AwakeController.aiDirectory)
-                }
+                .padding(.top, 6)
             }
-            if let copied { Label("Copiati: \(copied)", systemImage: "checkmark.circle").font(.system(size: 11)).foregroundStyle(.secondary) }
-            Text("Claude Code: incolla la sezione \"hooks\" in ~/.claude/settings.json. Altri strumenti: eseguono i comandi generici all'inizio e alla fine del lavoro.")
-                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 

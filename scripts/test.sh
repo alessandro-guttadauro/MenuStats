@@ -25,6 +25,13 @@ xcrun swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK_PATH" -parse-as-library
     -Xlinker -e -Xlinker _NSExtensionMain -o "$OUT/MenuStatsWidgets"
 echo "  ✓ compilata"
 
+# The real helper on this Mac (not on CI): keeps the Mac awake with the lid closed and gives sleep back.
+APP="$HOME/Applications/MenuStats.app"
+if [[ -z ${CI:-} && -x "$APP/Contents/MacOS/MenuStats" ]]; then
+    echo "▸ Coperchio chiuso, con l'helper installato"
+    "$APP/Contents/MacOS/MenuStats" --lid-test | sed 's/^/  /' || { echo "Prova del coperchio fallita"; exit 1; }
+fi
+
 echo "▸ Versione delle release"
 REPO=$(mktemp -d)
 NEXT="$PWD/scripts/next-version.sh"

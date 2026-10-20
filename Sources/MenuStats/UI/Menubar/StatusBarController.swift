@@ -32,6 +32,7 @@ final class StatusBarController: NSObject {
         self.panel = panel
         self.openSettings = openSettings
         super.init()
+        lastGeometry = Self.savedGeometry()
         observeRoom()
 
         model.$snapshot.receive(on: RunLoop.main).sink { [weak self] _ in
@@ -41,8 +42,7 @@ final class StatusBarController: NSObject {
 
         // objectWillChange fires before the new value is stored; rebuild on the next run loop pass.
         settings.objectWillChange.debounce(for: .milliseconds(30), scheduler: RunLoop.main).sink { [weak self] _ in
-            self?.debug("impostazioni cambiate: livello \(self?.fitLevel ?? -1) -> 0")
-            self?.fitLevel = 0
+            self?.fitLevel = 0 // rebuild() picks the step that fits again
             self?.rebuild()
         }.store(in: &cancellables)
 
@@ -76,18 +76,121 @@ final class StatusBarController: NSObject {
         }
     }
 
+    /// The modules as configured (with the compact bar's limit), before any automatic fit.
+    private var configuredModules: [ModuleID] {
+        let modules = settings.visibleModules
+        return settings.compactMenubar ? Array(modules.prefix(max(settings.compactModuleCount, 1))) : modules
+    }
+
+    private var configuredLabels: Bool { settings.showLabels && !settings.compactMenubar }
+
     private var structure: [[ModuleID]] {
-        var modules = settings.visibleModules
-        if settings.compactMenubar { modules = Array(modules.prefix(max(settings.compactModuleCount, 1))) }
-        // Automatic fit: level 1 drops the labels, each further level one more module from the end.
-        if fitLevel >= 2 { modules = Array(modules.prefix(max(modules.count - (fitLevel - 1), 1))) }
+        var modules = configuredModules
+        if settings.autoFitMenubar { modules = Array(modules.prefix(max(currentStep.moduleCount, 1))) }
         return settings.layout == .combined ? [modules] : modules.map { [$0] }
     }
 
     // MARK: - Room in the menu bar
 
-    /// How much MenuStats is shrunk to stay visible (0 = as configured). Reset when space may have freed up.
+    /// The step of `ladder` shown (0 = as configured). See MenubarFit for the order of the steps.
     private var fitLevel = 0
+    private var ladder: [(step: MenubarFit.Step, width: CGFloat)] = []
+    private var ladderTime = -Double.infinity
+    /// Right edge of MenuStats' items and the notch's right edge on that display, from the last time they were
+    /// visible: the room can still be computed while macOS keeps the items hidden.
+    private var lastGeometry: (rightEdge: CGFloat, notchRightEdge: CGFloat?)? {
+        didSet { if let lastGeometry, lastGeometry.rightEdge != oldValue?.rightEdge { Self.saveGeometry(lastGeometry) } }
+    }
+
+    /// The geometry is kept across launches (for the same display width), so MenuStats starts at the right step
+    /// instead of appearing too wide and being hidden by macOS first.
+    private static let geometryKey = "menubarFitGeometry"
+
+    private static func saveGeometry(_ geometry: (rightEdge: CGFloat, notchRightEdge: CGFloat?)) {
+        guard let notch = geometry.notchRightEdge, let width = NSScreen.main?.frame.width else { return }
+        UserDefaults.standard.set([Double(geometry.rightEdge), Double(notch), Double(width)], forKey: geometryKey)
+    }
+
+    private static func savedGeometry() -> (rightEdge: CGFloat, notchRightEdge: CGFloat?)? {
+        guard let values = UserDefaults.standard.array(forKey: geometryKey) as? [Double], values.count == 3,
+              let screen = NSScreen.screens.first(where: { $0.auxiliaryTopRightArea != nil }),
+              abs(screen.frame.width - values[2]) < 1, abs((screen.auxiliaryTopRightArea?.minX ?? 0) - values[1]) < 1 else { return nil }
+        return (values[0], values[1])
+    }
+    private var rebuilding = false
+    /// When the items were last created: macOS needs a moment to place them, and until then their frames are wrong.
+    private var itemsCreatedAt = -Double.infinity
+
+    private var currentStep: MenubarFit.Step {
+        ladder.isEmpty ? MenubarFit.Step(moduleCount: configuredModules.count, labels: configuredLabels)
+            : ladder[min(fitLevel, ladder.count - 1)].step
+    }
+
+    /// Measures every step of the ladder from the modules' current widths (no drawing).
+    private func updateLadder(force: Bool = false) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard force || now - ladderTime > 4 else { return }
+        ladderTime = now
+        let modules = configuredModules
+        let combined = settings.layout == .combined
+        ladder = MenubarFit.ladder(count: modules.count, labelsConfigured: configuredLabels) { step in
+            var options = MenubarOptions(settings)
+            options.showLabels = step.labels
+            let context = makeContext(options: options)
+            let widths = modules.prefix(step.moduleCount).map { MenubarRenderer.segment(for: $0, context: context).width }
+            // Each item is its image plus 2 points (see render) plus the padding macOS draws around it; separate
+            // items also have macOS' gap between them.
+            let padding = itemPadding
+            if combined {
+                return ceil(widths.reduce(0, +) + MenubarRenderer.segmentGap * CGFloat(max(widths.count - 1, 0))) + 2 + padding
+            }
+            return widths.map { ceil($0) + 2 + padding }.reduce(0, +) + Self.itemGap * CGFloat(max(widths.count - 1, 0))
+        }
+        fitLevel = min(fitLevel, max(ladder.count - 1, 0))
+        let summary = ladder.map { "\($0.step.moduleCount)\($0.step.labels ? "E" : "")=\(Int($0.width))" }.joined(separator: " ")
+        if summary != lastLadderSummary {
+            lastLadderSummary = summary
+            debug("scala dei passi: \(summary)")
+        }
+    }
+
+    private var lastLadderSummary = ""
+
+    /// Space macOS leaves between two status items.
+    private static let itemGap: CGFloat = 8
+
+    /// What macOS adds around an item's length (its window is wider than `length`), measured on a visible item.
+    private var itemPadding: CGFloat {
+        guard let entry = entries.first, let window = entry.item.button?.window, window.isVisible, entry.item.length > 0
+        else { return 16 }
+        return min(max(window.frame.width - entry.item.length, 0), 40)
+    }
+
+    /// The room MenuStats may use, measured on displays with a notch; nil where it can't be measured.
+    private func measuredRoom() -> CGFloat? {
+        let visible = entries.compactMap { entry -> NSWindow? in
+            guard let window = entry.item.button?.window, window.isVisible, !isOutOfRoom(window) else { return nil }
+            return window
+        }
+        let placed = ProcessInfo.processInfo.systemUptime - itemsCreatedAt > 1.5
+        if placed, visible.count == entries.count, let right = visible.map(\.frame.maxX).max(), let screen = visible.first?.screen {
+            let notch = screen.auxiliaryTopRightArea?.minX
+            // Items always sit right of the notch: anything else is a frame macOS hasn't settled yet.
+            if notch.map({ right > $0 }) ?? true { lastGeometry = (right, notch) }
+        }
+        guard let geometry = lastGeometry else { return nil }
+        return MenubarFit.room(rightEdge: geometry.rightEdge, notchRightEdge: geometry.notchRightEdge)
+    }
+
+    /// Shows the widest step that fits the measured room, if it can be measured.
+    private func applyRoom() {
+        guard settings.autoFitMenubar, !rebuilding, let room = measuredRoom() else { return }
+        let target = MenubarFit.choose(ladder, room: room, current: fitLevel)
+        guard target != fitLevel else { return }
+        debug("spazio \(Int(room)) pt: passo \(fitLevel) -> \(target) (\(ladder[target].step), \(Int(ladder[target].width)) pt)")
+        fitLevel = target
+        rebuild()
+    }
 
     /// Diagnostics for the automatic fit, on with `MENUSTATS_DEBUG=1` (run the app from a terminal to read them).
     private func debug(_ text: @autoclosure () -> String) {
@@ -98,7 +201,7 @@ final class StatusBarController: NSObject {
     private var fitCheck: DispatchWorkItem?
     private var confirmation = FitConfirmation()
 
-    private var maxFitLevel: Int { max(settings.visibleModules.count, 1) }
+    private var maxFitLevel: Int { max(ladder.count - 1, 0) }
 
     /// Where macOS put the items, as one number that changes when any of them moves or resizes.
     private var layoutSignature: Double {
@@ -176,27 +279,33 @@ final class StatusBarController: NSObject {
         }
         switch verdict {
         case .fine:
-            // Shrunk earlier, fits now: try one step wider after a while (it may have been a passing lack of room).
-            if fitLevel > 0 { scheduleRestore() }
+            // Where the room is measured it decides; elsewhere try one step wider after a while.
+            if lastGeometry?.notchRightEdge != nil { applyRoom() } else if fitLevel > 0 { scheduleRestore() }
         case .wait(let seconds): scheduleFitCheck(after: seconds)
         case .shrink:
             guard fitLevel < maxFitLevel else { return }
-            debug("riduco: livello \(fitLevel) -> \(fitLevel + 1)")
+            debug("nascosto da macOS: passo \(fitLevel) -> \(fitLevel + 1)")
             fitLevel += 1
+            // The measured room was wrong (an icon appeared to the right): measure again once visible.
+            lastGeometry = nil
             confirmation.layoutChanged(at: Date(), signature: layoutSignature)
             rebuild()
         }
     }
 
-    /// Something that changes the room in the menu bar happened: start again from the full bar.
+    /// Something that may change the room in the menu bar happened (an app launched or quit, another display).
+    /// With a measured room MenuStats picks the right step at once; elsewhere it tries one step wider at a time.
     private func resetFit() {
-        debug("resetFit (livello \(fitLevel))")
+        debug("lo spazio potrebbe essere cambiato (passo \(fitLevel))")
         confirmation.roomMayHaveChanged()
-        guard fitLevel > 0 else { scheduleFitCheck(); return }
-        restoreWork?.cancel()
-        restoreWork = nil
-        fitLevel = 0
-        rebuild()
+        if lastGeometry?.notchRightEdge != nil {
+            applyRoom()
+            scheduleFitCheck()
+        } else if fitLevel > 0 {
+            scheduleRestore()
+        } else {
+            scheduleFitCheck()
+        }
     }
 
     private func observeRoom() {
@@ -209,7 +318,10 @@ final class StatusBarController: NSObject {
             }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
-                                               queue: .main) { [weak self] _ in self?.resetFit() }
+                                               queue: .main) { [weak self] _ in
+            self?.lastGeometry = nil // the notch and the edges may be elsewhere now
+            self?.resetFit()
+        }
         NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil,
                                                queue: .main) { [weak self] note in
             guard let self, let window = note.object as? NSWindow,
@@ -220,12 +332,19 @@ final class StatusBarController: NSObject {
     }
 
     private func rebuild() {
+        rebuilding = true
+        defer { rebuilding = false }
+        updateLadder(force: true)
+        if settings.autoFitMenubar, let room = measuredRoom() {
+            fitLevel = MenubarFit.choose(ladder, room: room, current: fitLevel)
+        }
         let wanted = structure
         // Turning "next to the clock" on recreates the items, since macOS reads the position only when one is created.
         if wanted != entries.map(\.modules) || (settings.pinNearClock && pinApplied != true) {
             pinApplied = settings.pinNearClock
             confirmation.layoutChanged(at: Date(), signature: layoutSignature)
             entries.forEach { NSStatusBar.system.removeStatusItem($0.item) }
+            itemsCreatedAt = ProcessInfo.processInfo.systemUptime
             // New status items appear to the left of older ones, so create them right-to-left.
             entries = wanted.reversed().enumerated().map { rank, modules in
                 let name = "MenuStats." + (wanted.count == 1 ? "combined" : modules[0].rawValue)
@@ -245,10 +364,8 @@ final class StatusBarController: NSObject {
         scheduleFitCheck()
     }
 
-    private func render() {
-        var options = MenubarOptions(settings)
-        if settings.compactMenubar || fitLevel >= 1 { options.showLabels = false }
-        let context = MenubarRenderer.Context(
+    private func makeContext(options: MenubarOptions) -> MenubarRenderer.Context {
+        MenubarRenderer.Context(
             snapshot: model.snapshot,
             options: options,
             recent: { [weak model] metric, count in model?.recentValues(metric, count: count) ?? [] },
@@ -258,6 +375,18 @@ final class StatusBarController: NSObject {
             weatherConfigured: settings.weatherLocation != nil,
             awake: model.awake.state
         )
+    }
+
+    private func render() {
+        var options = MenubarOptions(settings)
+        if !configuredLabels || (settings.autoFitMenubar && !currentStep.labels) { options.showLabels = false }
+        let context = makeContext(options: options)
+        defer {
+            if settings.autoFitMenubar && !rebuilding {
+                updateLadder()
+                applyRoom()
+            }
+        }
         for index in entries.indices {
             guard let button = entries[index].item.button else { continue }
             let rendered = MenubarRenderer.image(for: entries[index].modules, context: context)
@@ -345,7 +474,6 @@ final class StatusBarController: NSObject {
     // MARK: - Clicks
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
-        debug("clic sulla barra (livello \(fitLevel))")
         guard let entry = entries.first(where: { $0.item.button === sender }), let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {

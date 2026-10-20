@@ -160,3 +160,74 @@ final class ProximityTests: XCTestCase {
         XCTAssertEqual(locks, 0)
     }
 }
+
+/// The real lock action and the full ProximityLock path, with the device readings simulated.
+final class ScreenLockTests: XCTestCase {
+    private let phone = "AA:01"
+    private let start = Date(timeIntervalSince1970: 2_000_000)
+
+    func testTheSystemLockFunctionExistsOnThisMacOS() {
+        // SystemActions.lockScreen() calls it; without it the lock would fall back to sleeping the display.
+        let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY)
+        XCTAssertNotNil(handle)
+        XCTAssertNotNil(handle.flatMap { dlsym($0, "SACLockScreenImmediate") })
+    }
+
+    func testScreenStateIsReadable() {
+        XCTAssertNotNil(CGSessionCopyCurrentDictionary(), "the session state used to skip locking a locked screen")
+    }
+
+    private func entry(_ id: String, rssi: Double?) -> NearbyDeviceReader.Entry {
+        NearbyDeviceReader.Entry(id: id, name: id, kind: nil, connected: false, rssi: rssi)
+    }
+
+    private func withLockSettings(_ body: (Settings) -> Void) {
+        let settings = Settings.shared
+        let saved = (settings.proximityLockEnabled, settings.proximityLockDevices, settings.proximityLockGrace,
+                     settings.proximityLockRequiresAll, settings.proximityLockUseDistance)
+        defer {
+            settings.proximityLockEnabled = saved.0
+            settings.proximityLockDevices = saved.1
+            settings.proximityLockGrace = saved.2
+            settings.proximityLockRequiresAll = saved.3
+            settings.proximityLockUseDistance = saved.4
+        }
+        settings.proximityLockGrace = 10
+        settings.proximityLockRequiresAll = false
+        settings.proximityLockUseDistance = false
+        settings.proximityLockDevices = [phone: "iPhone"]
+        settings.proximityLockEnabled = true
+        body(settings)
+    }
+
+    func testNoLockWhileTheScreenIsAlreadyLocked() {
+        withLockSettings { settings in
+            var locks = 0
+            var usable = false
+            let proximity = ProximityLock(settings: settings, reader: { [] }, lockAction: { locks += 1 }, canLockNow: { usable })
+            proximity.handle([entry(phone, rssi: -55)], now: start)
+            proximity.handle([], now: start.addingTimeInterval(30))
+            XCTAssertEqual(locks, 0, "already locked or display off: nothing to do")
+            usable = true
+            proximity.handle([], now: start.addingTimeInterval(40))
+            XCTAssertEqual(locks, 1, "unlocked while the phone is still away: locks")
+        }
+    }
+
+    func testLocksAgainAfterThePhoneComesBackAndLeaves() {
+        withLockSettings { settings in
+            var locks = 0
+            let proximity = ProximityLock(settings: settings, reader: { [] }, lockAction: { locks += 1 }, canLockNow: { true })
+            proximity.handle([entry(phone, rssi: -55)], now: start)
+            proximity.handle([], now: start.addingTimeInterval(15))
+            XCTAssertEqual(locks, 1)
+            proximity.handle([], now: start.addingTimeInterval(60))
+            XCTAssertEqual(locks, 1, "once per departure, not in a loop")
+            proximity.handle([entry(phone, rssi: -50)], now: start.addingTimeInterval(70)) // back at the desk
+            proximity.handle([], now: start.addingTimeInterval(75))
+            XCTAssertEqual(locks, 1, "within the grace period")
+            proximity.handle([], now: start.addingTimeInterval(85))
+            XCTAssertEqual(locks, 2)
+        }
+    }
+}

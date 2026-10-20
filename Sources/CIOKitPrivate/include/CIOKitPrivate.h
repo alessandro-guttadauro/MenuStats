@@ -69,3 +69,12 @@ int MSChargeLimitSupported(void);
 int MSChargeLimitGet(void);
 /// Sets the limit (80...100; 100 turns it off). Returns 0 on success.
 int MSChargeLimitSet(int percent);
+
+// MARK: - System power settings (the calls behind `pmset disablesleep`), from IOKit's private power API.
+
+CF_ASSUME_NONNULL_BEGIN
+/// Sets a system power setting such as "SleepDisabled" (root only). Returns kIOReturnSuccess on success.
+IOReturn MSPMSetSystemPowerSetting(CFStringRef key, CFTypeRef value) __asm("_IOPMSetSystemPowerSetting");
+/// The current system power settings ("SleepDisabled" appears while sleep is disabled); readable without root.
+CFDictionaryRef _Nullable MSPMCopySystemPowerSettings(void) __asm("_IOPMCopySystemPowerSettings") CF_RETURNS_RETAINED;
+CF_ASSUME_NONNULL_END

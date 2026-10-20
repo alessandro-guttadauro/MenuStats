@@ -267,22 +267,35 @@ enum MenubarRenderer {
         let state = context.awake
         let steams = state.isActive && context.options.dynamicIcons
         let symbol = Part.cup(active: state.isActive, steam: steams ? context.steamPhase : nil)
-        // Timed: hours:minutes left (or ∞ without an end). Download: its percentage when macOS reports one. App: its name.
-        let time: String
+        // Kept narrow: timed sessions show the time left (or ∞), downloads their percentage when macOS reports one.
+        // AI and app sessions show the cup alone: its steam already says it's on, and the dropdown says why.
+        let time: String?
+        let template: String?
         switch state.kind {
-        case _ where !state.isActive: time = "—"
-        case .timed: time = state.remaining(at: context.now).map(Format.clockCompact) ?? "∞"
-        case .download(_, let progress): time = progress.map { Format.percent($0) } ?? "↓"
-        case .app: time = "App"
-        case .ai(let working): time = working > 1 ? "IA \(working)" : "IA"
+        case _ where !state.isActive: time = nil; template = nil
+        case .timed:
+            time = state.remaining(at: context.now).map(Format.clockCompact) ?? "∞"
+            // Width for the hours actually shown, so "0:45" doesn't reserve room for "88:88".
+            template = (time?.count ?? 0) > 4 ? "88:88" : "8:88"
+        case .download(_, let progress): time = progress.map { Format.percent($0) }; template = "88%"
+        case .app, .ai: time = nil; template = nil
         }
         switch context.options.awakeStyle {
         case .icon:
             return compose(.awake, [symbol])
         case .iconTime:
-            return compose(.awake, state.isActive ? [symbol, .plain(time, template: "88:88")] : [symbol])
+            guard let time else { return compose(.awake, [symbol]) }
+            return compose(.awake, [symbol, .plain(time, template: template)])
         case .stacked:
-            return compose(.awake, [symbol, .labeled(state.isActive ? "SVEGLIO" : "SPENTO", time, template: "88:88")])
+            let status: String = {
+                guard state.isActive else { return "SPENTO" }
+                switch state.kind {
+                case .ai: return "IA"
+                case .app: return "APP"
+                default: return "SVEGLIO"
+                }
+            }()
+            return compose(.awake, [symbol, .labeled(status, time ?? (state.isActive ? "ON" : "—"), template: template ?? "88")])
         }
     }
 

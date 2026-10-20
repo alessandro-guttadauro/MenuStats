@@ -22,6 +22,8 @@ struct AwakeState: Equatable {
     var endDate: Date?
     var startDate: Date?
     var allowsDisplaySleep = false
+    /// For AI sessions: the tools at work, one entry per session ("Claude Code", "Codex").
+    var aiTools: [String] = []
 
     /// An active session with 1 h 30 min left, for the style previews in Settings.
     static var sample: AwakeState {
@@ -69,9 +71,13 @@ final class AwakeController: ObservableObject {
     private var lastSize: UInt64 = 0
     private var secondsWithoutGrowth = 0
 
-    // AI activity: tools drop a file in `aiDirectory` when they start working and delete it when done.
+    // AI activity: recognized automatically (AIActivityMonitor); tools may also drop a file in `aiDirectory`
+    // when they start working and delete it when done.
     static let aiDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".menustats/ai")
     private var aiTimer: Timer?
+    private lazy var aiMonitor = AIActivityMonitor()
+    /// When the last AI activity stopped; the session ends once this is older than the chosen grace period.
+    private var aiIdleSince: Date?
     /// After the user ends an AI session by hand, the same activity does not restart it; it re-arms once the AI is idle.
     private var aiSnoozed = false
 
@@ -224,7 +230,7 @@ final class AwakeController: ObservableObject {
     private func startWatchingAI() {
         guard aiTimer == nil else { return }
         try? FileManager.default.createDirectory(at: Self.aiDirectory, withIntermediateDirectories: true)
-        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.checkAI() }
+        let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in self?.checkAI() }
         timer.tolerance = 0.5
         RunLoop.main.add(timer, forMode: .common)
         aiTimer = timer
@@ -240,6 +246,15 @@ final class AwakeController: ObservableObject {
             guard let modified = try? file.resourceValues(forKeys: Set(keys)).contentModificationDate else { return false }
             return now.timeIntervalSince(modified) < Double(minutes) * 60
         }.count
+    }
+
+    /// "Claude Code al lavoro", "2 sessioni di Claude Code e Codex al lavoro".
+    static func describe(_ tools: [String]) -> String {
+        guard !tools.isEmpty else { return "IA al lavoro" }
+        var names: [String] = []
+        for tool in tools where !names.contains(tool) { names.append(tool) }
+        let list = names.count > 1 ? names.dropLast().joined(separator: ", ") + " e " + names.last! : names[0]
+        return tools.count > names.count ? "\(tools.count) sessioni di \(list) al lavoro" : "\(list) al lavoro"
     }
 
     /// Shell commands any tool can run: mark "working" (also refreshes it) and "done". `name` identifies the tool/session.
@@ -265,16 +280,22 @@ final class AwakeController: ObservableObject {
     }
 
     private func checkAI() {
-        let working = Self.aiWorkingCount(staleAfter: settings.awakeAIStaleMinutes)
-        if working == 0 { aiSnoozed = false }
+        let reading = aiMonitor.sample(hookStaleMinutes: settings.awakeAIStaleMinutes)
+        let now = Date()
+        if reading.isWorking { aiIdleSince = nil } else if aiIdleSince == nil { aiIdleSince = now }
+        // Pauses while a model thinks write nothing and use no CPU: only a long quiet spell means the work is done.
+        let finished = aiIdleSince.map { now.timeIntervalSince($0) >= Double(settings.awakeAIGraceMinutes) * 60 } ?? false
+        if finished { aiSnoozed = false }
         if case .ai = state.kind, state.isActive {
-            if working == 0 {
+            if finished {
                 stop(reason: "L'IA ha finito di lavorare")
-            } else if state.kind != .ai(working: working) {
-                state.kind = .ai(working: working)
+            } else if reading.isWorking, state.aiTools != reading.sessions {
+                state.kind = .ai(working: reading.sessions.count)
+                state.aiTools = reading.sessions
             }
-        } else if working > 0, !state.isActive, !aiSnoozed {
-            _ = begin(kind: .ai(working: working), end: nil)
+        } else if reading.isWorking, !state.isActive, !aiSnoozed {
+            guard begin(kind: .ai(working: reading.sessions.count), end: nil) else { return }
+            state.aiTools = reading.sessions
         }
     }
 

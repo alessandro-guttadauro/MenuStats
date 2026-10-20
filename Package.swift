@@ -39,7 +39,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MenuStatsTests",
-            dependencies: ["MenuStats", "MenuStatsWidgetUI"],
+            dependencies: ["MenuStats", "MenuStatsWidgetUI", "MenuStatsHelper", "MenuStatsShared"],
             path: "Tests/MenuStatsTests"
         ),
     ]

@@ -210,8 +210,9 @@ eccezioni, tutte **spente di default**:
 
 I dispositivi vicini della scheda Mappa si leggono sul Mac con `system_profiler`, senza scansionare il Bluetooth e senza
 permessi aggiuntivi: a scheda aperta, oppure in background solo se accendi il blocco per distanza. Nulla viene salvato o
-inviato. Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
-dimensioni del file che scegli di seguire. Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
+inviato. Il modulo Sveglio non usa la rete: per riconoscere l'IA legge solo le date di modifica delle conversazioni degli
+agenti (mai il contenuto), l'uso di CPU dei loro processi e la cartella `~/.menustats/ai`, oltre alle dimensioni del
+file che scegli di seguire. Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
 8 giorni in `~/Library/Application Support/MenuStats`.
 
 ## ☕ Sveglio
@@ -227,8 +228,8 @@ Mentre una sessione è attiva la tazza in barra si riempie e fuma.
   dimensione resta ferma per il tempo che indichi (da 10 secondi a 30 minuti) o quando il file sparisce.
   Se macOS espone l'avanzamento del download, la barra lo mostra.
 - **Finché un'app è aperta**: scegli un'app in esecuzione; la sessione finisce quando la chiudi.
-- **Finché l'IA lavora**: un interruttore che resta acceso. Il Mac resta sveglio mentre uno strumento IA lavora e poi
-  lascia andare da solo (vedi sotto).
+- **Finché l'IA lavora**: attivo di serie. Riconosce da solo Claude Code, Codex e gli altri agenti al lavoro, tiene
+  sveglio il Mac e lascia andare quando hanno finito (vedi sotto).
 - Lo schermo può restare acceso o spegnersi, e la sessione può finire sotto una soglia di batteria.
 - **Coperchio chiuso** (facoltativo, sui portatili): con l'helper con privilegi installato, durante una sessione il
   Mac resta sveglio anche a coperchio chiuso, come con `sudo pmset disablesleep 1`. Finché dura è sospeso anche Stop
@@ -238,78 +239,23 @@ Mentre una sessione è attiva la tazza in barra si riempie e fuma.
 
 ### Finché l'IA lavora
 
-Ogni strumento IA segnala che sta lavorando creando un file in `~/.menustats/ai/` e lo cancella quando ha finito.
-MenuStats controlla la cartella ogni 2 secondi, solo con l'interruttore acceso: finché c'è almeno un file recente il
-Mac resta sveglio, quando l'ultimo sparisce lascia andare. Più sessioni in parallelo funzionano: ognuna ha il suo
-file. Un file non rinnovato per il tempo scelto in Impostazioni (30 minuti di default) viene ignorato: serve quando
-uno strumento si ferma senza avvisare, per esempio con Esc in Claude Code. Se termini a mano una sessione IA, la
-stessa attività non la riavvia.
+Attivo di serie e senza configurare nulla: MenuStats riconosce da solo quando un agente IA sta lavorando e tiene
+sveglio il Mac fino alla fine del lavoro. Ogni 3 secondi guarda due segnali:
 
-**Claude Code.** In Impostazioni ▸ Sveglio, **Copia hook per Claude Code**, poi incolla la sezione `hooks` in
-`~/.claude/settings.json` (o in `.claude/settings.json` di un progetto). `UserPromptSubmit` e `PostToolUse` segnalano
-che sta lavorando, `Stop` e `SessionEnd` che ha finito. L'id della sessione arriva a ogni hook come JSON e dà a ogni
-sessione il suo file; viene ripulito da tutto tranne lettere, cifre, `-` e `_`:
+- **le conversazioni salvate su disco**: Claude Code (anche dentro l'app Claude), Codex, Gemini CLI e OpenCode scrivono
+  la sessione a ogni passo. Una conversazione aggiornata negli ultimi 45 secondi vuol dire lavoro in corso. MenuStats
+  legge solo la data dei file, mai il contenuto;
+- **i processi degli agenti** (`claude`, `codex`, `gemini`, `opencode`, `aider`, `cursor-agent`, `copilot`…) e i comandi
+  che lanciano: se usano la CPU per due controlli di fila (una compilazione, dei test) il lavoro continua anche senza
+  nuovi messaggi.
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; mkdir -p \"$HOME/.menustats/ai\" && touch \"$f\"",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; mkdir -p \"$HOME/.menustats/ai\" && touch \"$f\"",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; rm -f \"$f\"",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "command": "s=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f=\"$HOME/.menustats/ai/claude-${s:-x}\"; rm -f \"$f\"",
-            "type": "command"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+La sessione finisce quando non c'è più attività da 3 minuti (scegli tra 1 e 15 in Impostazioni ▸ Sveglio): le pause
+in cui il modello "pensa" non la interrompono. Più agenti in parallelo contano come più sessioni. Se termini a mano
+una sessione IA, la stessa attività non la riavvia finché l'IA non si ferma.
 
-**Altri strumenti.** Va bene qualsiasi strumento che può eseguire un comando quando comincia e quando finisce un
-lavoro (hook, script, notifiche di fine attività, un alias). Scegli un nome per lo strumento:
-
-```sh
-# quando inizia (e, se può, ogni volta che lavora ancora)
-mkdir -p ~/.menustats/ai && touch ~/.menustats/ai/nome-strumento
-# quando finisce
-rm -f ~/.menustats/ai/nome-strumento
-```
-
-Per un comando da terminale basta avvolgerlo: `touch ~/.menustats/ai/build; npm run build; rm -f ~/.menustats/ai/build`.
-Uno strumento che avvisa solo della fine non basta, perché manca il segnale di inizio. App senza hook né comandi,
-come il sito o l'app di ChatGPT, non si possono collegare così: per loro c'è "finché un'app è aperta".
+Per strumenti che MenuStats non riconosce restano gli hook manuali (Impostazioni ▸ Sveglio ▸ Avanzate): all'inizio
+del lavoro creano un file in `~/.menustats/ai/`, alla fine lo cancellano. Per Claude Code c'è il pulsante
+**Copia hook per Claude Code**, da incollare in `~/.claude/settings.json`.
 
 ## 🌀 Ventole e limite di carica
 
@@ -401,7 +347,9 @@ git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
 
 | Comando | A cosa serve |
 |---|---|
-| `./scripts/test.sh` | test unitari, letture dei widget confrontate con macOS, estensione, versioni delle release |
+| `./scripts/test.sh` | test unitari, letture dei widget confrontate con macOS, estensione, coperchio chiuso con l'helper vero, versioni delle release |
+| `MenuStats.app/Contents/MacOS/MenuStats --lid-test` | tiene sveglio il Mac "a coperchio chiuso" tramite l'helper e verifica che lo stop torni |
+| `MenuStats.app/Contents/MacOS/MenuStats --lock-test` | blocca davvero lo schermo come il blocco per distanza e verifica lo stato |
 | `swift run MenuStats --verify` | confronta i valori con gli strumenti di macOS |
 | `swift run MenuStats --dump` | stampa una lettura di tutto |
 | `swift run -c release MenuStats --benchmark` | costo di ogni lettore e del disegno |

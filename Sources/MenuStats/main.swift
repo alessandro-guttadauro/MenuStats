@@ -40,6 +40,8 @@ if arguments.contains("--benchmark") {
 // Helper commands; run them from inside MenuStats.app (see HardwareTest).
 if arguments.contains("--install-helper") { HardwareTest.install(true); exit(0) }
 if arguments.contains("--uninstall-helper") { HardwareTest.install(false); exit(0) }
+if arguments.contains("--lid-test") { HardwareTest.lidTest() }
+if arguments.contains("--lock-test") { HardwareTest.lockTest() }
 if let flag = arguments.firstIndex(of: "--fan-test") {
     let fan = arguments.count > flag + 1 ? Int(arguments[flag + 1]) ?? 0 : 0
     let rpm = arguments.count > flag + 2 ? Double(arguments[flag + 2]) ?? 3000 : 3000

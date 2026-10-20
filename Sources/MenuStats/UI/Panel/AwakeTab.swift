@@ -144,12 +144,12 @@ struct AwakeTab: View {
 
     private var aiCaption: String {
         guard settings.awakeWatchAI else {
-            return "Claude Code e altri strumenti segnalano quando lavorano; gli hook si copiano da Impostazioni ▸ Sveglio."
+            return "Riconosce da solo Claude Code, Codex, Gemini CLI e OpenCode al lavoro e tiene sveglio il Mac finché finiscono."
         }
-        if case .ai(let working) = state.kind, state.isActive {
-            return working == 1 ? "Una sessione IA al lavoro." : "\(working) sessioni IA al lavoro."
+        if case .ai = state.kind, state.isActive {
+            return "\(AwakeController.describe(state.aiTools)): il Mac resta sveglio finché il lavoro non finisce."
         }
-        return "In attesa: il Mac resta sveglio appena un'IA inizia a lavorare."
+        return "In attesa: il Mac resta sveglio appena Claude Code, Codex o un'altra IA inizia a lavorare."
     }
 
     private var optionsCard: some View {

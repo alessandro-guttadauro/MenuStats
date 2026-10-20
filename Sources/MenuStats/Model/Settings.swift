@@ -351,6 +351,8 @@ final class Settings: ObservableObject {
     @Published var awakeAIAllowDisplaySleep: Bool { didSet { save(awakeAIAllowDisplaySleep, "awakeAIAllowDisplaySleep") } }
     /// A signal not refreshed for this long (minutes) is ignored, e.g. after an interrupted run that never reported its end.
     @Published var awakeAIStaleMinutes: Int { didSet { save(awakeAIStaleMinutes, "awakeAIStaleMinutes") } }
+    /// Minutes without any AI activity before an AI session ends.
+    @Published var awakeAIGraceMinutes: Int { didSet { save(awakeAIGraceMinutes, "awakeAIGraceMinutes") } }
 
     // Nearby devices (Map tab)
     /// The radar drawing in the Map tab's nearby-devices card; the list below it is always shown.
@@ -455,9 +457,10 @@ final class Settings: ObservableObject {
         awakeLowBatteryThreshold = double("awakeLowBatteryThreshold", 0.2)
         awakeCustomMinutes = defaults.object(forKey: "awakeCustomMinutes") as? Int ?? 90
         awakeDownloadTimeout = defaults.object(forKey: "awakeDownloadTimeout") as? Int ?? 30
-        awakeWatchAI = bool("awakeWatchAI", false)
+        awakeWatchAI = bool("awakeWatchAI", true)
         awakeAIAllowDisplaySleep = bool("awakeAIAllowDisplaySleep", true)
         awakeAIStaleMinutes = defaults.object(forKey: "awakeAIStaleMinutes") as? Int ?? 30
+        awakeAIGraceMinutes = defaults.object(forKey: "awakeAIGraceMinutes") as? Int ?? 3
         nearbyShowRadar = bool("nearbyShowRadar", true)
         proximityLockEnabled = bool("proximityLockEnabled", false)
         proximityLockDevices = defaults.dictionary(forKey: "proximityLockDevices") as? [String: String] ?? [:]
