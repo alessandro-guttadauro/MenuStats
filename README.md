@@ -235,7 +235,8 @@ Mentre una sessione è attiva la tazza in barra si riempie e fuma.
   Mac resta sveglio anche a coperchio chiuso, come con `sudo pmset disablesleep 1`. Finché dura è sospeso anche Stop
   dal menu Apple. Lo stop torna attivo da solo a fine sessione, se MenuStats si chiude, va in crash o non risponde
   per 3 minuti, con stress termico, con la batteria sotto il 10% e al riavvio. Un `disablesleep` impostato a mano
-  non viene toccato. Senza quest'opzione chiudere il coperchio mette il Mac in stop.
+  non viene toccato. Senza quest'opzione chiudere il coperchio mette il Mac in stop. Se la sessione lascia spegnere lo
+  schermo, MenuStats lo spegne dopo il tempo impostato in macOS senza attività, anche mentre tiene sveglio il Mac.
 
 ### Finché l'IA lavora
 
@@ -247,7 +248,10 @@ sveglio il Mac fino alla fine del lavoro. Ogni 3 secondi guarda due segnali:
   legge solo la data dei file, mai il contenuto;
 - **i processi degli agenti** (`claude`, `codex`, `gemini`, `opencode`, `aider`, `cursor-agent`, `copilot`…) e i comandi
   che lanciano: se usano la CPU per due controlli di fila (una compilazione, dei test) il lavoro continua anche senza
-  nuovi messaggi.
+  nuovi messaggi. Contano solo gli agenti, non le app con finestra: l'app Claude aperta non tiene sveglio il Mac,
+  Claude Code al suo interno sì, mentre lavora.
+
+Per vedere cosa riconosce in quel momento: `MenuStats.app/Contents/MacOS/MenuStats --ai-status`.
 
 La sessione finisce quando non c'è più attività da 3 minuti (scegli tra 1 e 15 in Impostazioni ▸ Sveglio): le pause
 in cui il modello "pensa" non la interrompono. Più agenti in parallelo contano come più sessioni. Se termini a mano
@@ -349,6 +353,7 @@ git clone https://github.com/thomas-addamo/MenuStats.git && cd MenuStats
 |---|---|
 | `./scripts/test.sh` | test unitari, letture dei widget confrontate con macOS, estensione, coperchio chiuso con l'helper vero, versioni delle release |
 | `MenuStats.app/Contents/MacOS/MenuStats --lid-test` | tiene sveglio il Mac "a coperchio chiuso" tramite l'helper e verifica che lo stop torni |
+| `MenuStats.app/Contents/MacOS/MenuStats --ai-status` | mostra per 30 secondi cosa vede "Sveglio finché l'IA lavora" |
 | `MenuStats.app/Contents/MacOS/MenuStats --lock-test` | blocca davvero lo schermo come il blocco per distanza e verifica lo stato |
 | `swift run MenuStats --verify` | confronta i valori con gli strumenti di macOS |
 | `swift run MenuStats --dump` | stampa una lettura di tutto |
