@@ -897,6 +897,39 @@ struct AwakeLidSettings: View {
     }
 }
 
+/// Claude Code's hooks: tell MenuStats exactly when Claude starts and stops working.
+private struct ClaudeHooksRow: View {
+    @State private var installed = AwakeController.claudeHooksInstalled()
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: installed ? "checkmark.circle.fill" : "exclamationmark.circle")
+                    .foregroundStyle(installed ? Color.green : Color.orange)
+                Text(installed ? "Hook di Claude Code installati: Sveglio si spegne appena Claude finisce."
+                               : "Hook di Claude Code non installati: la fine del lavoro di Claude è solo stimata.")
+                    .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(installed ? "Rimuovi" : "Installa hook") { set(!installed) }
+            }
+            Text("Aggiunge a ~/.claude/settings.json gli avvisi di inizio e fine lavoro (il resto del file non cambia; una copia resta in settings.json.menustats-backup). Valgono per Claude Code nel Terminale e nell'app Claude, dalla prossima sessione.")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let error { Text(error).font(.system(size: 11)).foregroundStyle(.red) }
+        }
+    }
+
+    private func set(_ install: Bool) {
+        do {
+            try AwakeController.setClaudeHooks(installed: install)
+            error = nil
+        } catch {
+            self.error = "Impossibile modificare ~/.claude/settings.json: \(error.localizedDescription)"
+        }
+        installed = AwakeController.claudeHooksInstalled()
+    }
+}
+
 /// What the AI watcher sees right now.
 private struct AIStatusRow: View {
     @ObservedObject var awake: AwakeController
@@ -937,12 +970,12 @@ struct AwakeAISettings: View {
                 }
                 .labelsHidden().fixedSize()
             }
-            DisclosureGroup("Avanzate: segnali manuali (hook)") {
+            ClaudeHooksRow()
+            DisclosureGroup("Altri strumenti: segnali manuali") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Per strumenti che MenuStats non riconosce: all'inizio del lavoro creano un file in ~/.menustats/ai e alla fine lo cancellano.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 8) {
-                        Button("Copia hook per Claude Code") { copy(AwakeController.claudeCodeHooksJSON(), "hook") }
                         Button("Copia comandi generici") {
                             copy("# inizio (e ogni volta che lavora ancora)\n\(AwakeController.aiStartCommand(name: "nome-strumento"))\n# fine\n\(AwakeController.aiStopCommand(name: "nome-strumento"))\n", "comandi")
                         }

@@ -240,7 +240,7 @@ Mentre una sessione è attiva la tazza in barra si riempie e fuma.
 
 ### Finché l'IA lavora
 
-Attivo di serie e senza configurare nulla: MenuStats riconosce da solo quando un agente IA sta lavorando e tiene
+Attivo di serie: MenuStats riconosce quando un agente IA sta lavorando e tiene
 sveglio il Mac fino alla fine del lavoro. Ogni 3 secondi guarda due segnali:
 
 - **le conversazioni salvate su disco**: Claude Code (anche dentro l'app Claude), Codex, Gemini CLI e OpenCode scrivono
@@ -257,9 +257,16 @@ La sessione finisce quando non c'è più attività da 3 minuti (scegli tra 1 e 1
 in cui il modello "pensa" non la interrompono. Più agenti in parallelo contano come più sessioni. Se termini a mano
 una sessione IA, la stessa attività non la riavvia finché l'IA non si ferma.
 
-Per strumenti che MenuStats non riconosce restano gli hook manuali (Impostazioni ▸ Sveglio ▸ Avanzate): all'inizio
-del lavoro creano un file in `~/.menustats/ai/`, alla fine lo cancellano. Per Claude Code c'è il pulsante
-**Copia hook per Claude Code**, da incollare in `~/.claude/settings.json`.
+**Con Claude Code, gli hook (consigliati).** In Impostazioni ▸ Sveglio, **Installa hook**: MenuStats aggiunge a
+`~/.claude/settings.json` gli avvisi di Claude Code (il resto del file non cambia, una copia resta in
+`settings.json.menustats-backup`; lo stesso con `MenuStats --install-claude-hooks`). Claude dice da solo quando inizia
+(messaggio inviato, prima e dopo ogni strumento) e quando ha finito (risposta conclusa, sessione chiusa, attesa di un
+tuo permesso o risposta): Sveglio si spegne circa 10 secondi dopo la fine, senza stime. Con gli hook installati, per
+Claude contano solo loro; un segnale rimasto dopo un'interruzione con Esc viene ignorato appena non c'è più nessun
+processo di Claude Code. Valgono per Claude Code nel Terminale e nell'app Claude.
+
+Per altri strumenti: all'inizio del lavoro creano un file in `~/.menustats/ai/`, alla fine lo cancellano
+(Impostazioni ▸ Sveglio ▸ Altri strumenti).
 
 ## 🌀 Ventole e limite di carica
 

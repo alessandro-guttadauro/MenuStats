@@ -5,11 +5,14 @@ import Foundation
 ///   - their session transcripts on disk (Claude Code, Codex, Gemini CLI, OpenCode) are written at every step;
 ///     only modification dates are read, never the contents;
 ///   - their processes (`claude`, `codex`, …) and the commands they run (builds, tests) use the CPU.
-/// The hook files in ~/.menustats/ai still count, for tools that report themselves.
+/// Tools can also report themselves with hook files in ~/.menustats/ai (MenuStats installs Claude Code's hooks): those
+/// are exact, so a tool whose hooks are installed is judged by them alone and not by the estimates above.
 final class AIActivityMonitor {
     struct Reading: Equatable {
         /// Names of the tools at work, one entry per active session ("Claude Code", "Codex"…).
         var sessions: [String] = []
+        /// Every session comes from hook files: the tools said themselves that they are working.
+        var onlyHooks = false
         var isWorking: Bool { !sessions.isEmpty }
     }
 
@@ -65,21 +68,33 @@ final class AIActivityMonitor {
         self.hookDirectory = hookDirectory
     }
 
-    func sample(hookStaleMinutes: Int, now: Date = Date()) -> Reading {
-        var sessions: [String] = []
-        if let hookDirectory {
-            let hooks = AwakeController.aiWorkingCount(staleAfter: hookStaleMinutes, now: now, in: hookDirectory)
-            sessions += Array(repeating: "IA", count: hooks)
-        }
-        let transcripts = activeTranscripts(now: now)
-        sessions += transcripts
+    /// `hookedTools`: tools whose hooks are installed; for them only the hook files count.
+    func sample(hookStaleMinutes: Int, hookedTools: Set<String> = [], now: Date = Date()) -> Reading {
+        let busy = busyAgents() // also refreshes the list of agent processes used below
+        let hooks = hookDirectory.map { hookSessions(in: $0, staleAfter: hookStaleMinutes, now: now) } ?? []
+        var estimated = activeTranscripts(now: now).filter { !hookedTools.contains($0) }
         // Processes add what transcripts can't see (a long build or test run with nothing written meanwhile),
         // but a busy `claude` whose transcript already counts is the same session.
-        for tool in busyAgents() where !transcripts.contains(tool) && !sessions.contains(tool) {
-            sessions.append(tool)
+        for tool in busy where !hookedTools.contains(tool) && !estimated.contains(tool) && !hooks.contains(tool) {
+            estimated.append(tool)
         }
-        if sessions.count > 1 { sessions.removeAll { $0 == "IA" } } // hooks usually duplicate a detected session
-        return Reading(sessions: sessions)
+        estimated.removeAll { hooks.contains($0) }
+        return Reading(sessions: hooks + estimated, onlyHooks: !hooks.isEmpty && estimated.isEmpty)
+    }
+
+    /// One entry per fresh hook file: "Claude Code" for Claude's (claude-<session>), "IA" for others. A Claude file
+    /// left behind (interrupted with Esc, so no Stop event) stops counting once no Claude Code process is running.
+    func hookSessions(in directory: URL, staleAfter minutes: Int, now: Date = Date()) -> [String] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys,
+                                                                   options: [.skipsHiddenFiles])) ?? []
+        let claudeRunning = agents.contains { $0.tool == "Claude Code" } || agentsTime == -.infinity
+        return files.compactMap { file in
+            guard let modified = try? file.resourceValues(forKeys: Set(keys)).contentModificationDate,
+                  now.timeIntervalSince(modified) < Double(minutes) * 60 else { return nil }
+            if file.lastPathComponent.hasPrefix("claude-") { return claudeRunning ? "Claude Code" : nil }
+            return "IA"
+        }
     }
 
     // MARK: - Transcripts

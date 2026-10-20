@@ -39,7 +39,7 @@ final class AwakeTests: XCTestCase {
         let data = Data(AwakeController.claudeCodeHooksJSON().utf8)
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
-        XCTAssertEqual(Set(hooks.keys), ["UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd"])
+        XCTAssertEqual(Set(hooks.keys), ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd", "Notification"])
     }
 
     func testHooksCreateOneSignalPerSessionAndRemoveIt() throws {
@@ -131,6 +131,67 @@ final class AwakeTests: XCTestCase {
         awake.checkAI(now: start.addingTimeInterval(700))
         XCTAssertTrue(awake.state.isAI, "re-armed after the AI was idle")
         awake.stop()
+    }
+
+    func testInstallingHooksKeepsTheRestOfClaudesSettings() throws {
+        let folder = try temporaryDirectory()
+        let url = folder.appendingPathComponent("settings.json")
+        let original: [String: Any] = [
+            "model": "opus",
+            "hooks": ["Stop": [["hooks": [["type": "command", "command": "say fatto"]]]]],
+        ]
+        try JSONSerialization.data(withJSONObject: original).write(to: url)
+        XCTAssertFalse(AwakeController.claudeHooksInstalled(settings: url))
+
+        try AwakeController.setClaudeHooks(installed: true, settings: url)
+        try AwakeController.setClaudeHooks(installed: true, settings: url) // twice: no duplicates
+        XCTAssertTrue(AwakeController.claudeHooksInstalled(settings: url))
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(root["model"] as? String, "opus")
+        var hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
+        let stop = try XCTUnwrap(hooks["Stop"] as? [[String: Any]])
+        XCTAssertEqual(stop.count, 2, "the user's own Stop hook stays, ours is added once")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathExtension("menustats-backup").path))
+
+        try AwakeController.setClaudeHooks(installed: false, settings: url)
+        XCTAssertFalse(AwakeController.claudeHooksInstalled(settings: url))
+        root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
+        XCTAssertEqual(Set(hooks.keys), ["Stop"], "only the user's hook is left")
+        XCTAssertEqual(root["model"] as? String, "opus")
+    }
+
+    func testInstallingHooksCreatesTheFileIfMissing() throws {
+        let url = try temporaryDirectory().appendingPathComponent("nuova/settings.json")
+        try AwakeController.setClaudeHooks(installed: true, settings: url)
+        XCTAssertTrue(AwakeController.claudeHooksInstalled(settings: url))
+    }
+
+    func testHookedSessionEndsSecondsAfterClaudeStops() {
+        let settings = Settings.shared
+        let saved = settings.awakeLidClosed
+        defer { settings.awakeLidClosed = saved }
+        settings.awakeLidClosed = false
+        let awake = AwakeController(settings: settings)
+        var reading = AIActivityMonitor.Reading(sessions: ["Claude Code"], onlyHooks: true)
+        awake.aiReading = { reading }
+        let start = Date()
+        awake.checkAI(now: start)
+        XCTAssertTrue(awake.state.isAI)
+        reading = AIActivityMonitor.Reading() // Stop: the hook removed its file
+        awake.checkAI(now: start.addingTimeInterval(3))
+        awake.checkAI(now: start.addingTimeInterval(9))
+        XCTAssertTrue(awake.state.isAI, "a new prompt within seconds keeps the session")
+        awake.checkAI(now: start.addingTimeInterval(14))
+        XCTAssertFalse(awake.state.isActive, "ended about 10 seconds after Claude finished")
+    }
+
+    func testHookFilesNameTheirTool() throws {
+        let folder = try temporaryDirectory()
+        FileManager.default.createFile(atPath: folder.appendingPathComponent("claude-abc").path, contents: nil)
+        FileManager.default.createFile(atPath: folder.appendingPathComponent("altro").path, contents: nil)
+        let monitor = AIActivityMonitor(sources: [], hookDirectory: folder)
+        XCTAssertEqual(Set(monitor.hookSessions(in: folder, staleAfter: 30)), ["Claude Code", "IA"])
     }
 
     func testTimedSessionStartsAndStops() throws {

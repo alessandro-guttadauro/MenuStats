@@ -42,13 +42,26 @@ if arguments.contains("--install-helper") { HardwareTest.install(true); exit(0) 
 if arguments.contains("--uninstall-helper") { HardwareTest.install(false); exit(0) }
 if arguments.contains("--lid-test") { HardwareTest.lidTest() }
 if arguments.contains("--lock-test") { HardwareTest.lockTest() }
+if arguments.contains("--install-claude-hooks") || arguments.contains("--remove-claude-hooks") {
+    let install = arguments.contains("--install-claude-hooks")
+    do {
+        try AwakeController.setClaudeHooks(installed: install)
+        print(install ? "Hook di Claude Code installati in ~/.claude/settings.json" : "Hook di Claude Code rimossi")
+        exit(0)
+    } catch {
+        print("Errore: \(error.localizedDescription)")
+        exit(1)
+    }
+}
 // `--ai-status`: what "Sveglio finché l'IA lavora" sees, every 3 seconds for 30 seconds.
 if arguments.contains("--ai-status") {
     let monitor = AIActivityMonitor()
     for round in 0..<11 {
-        let reading = monitor.sample(hookStaleMinutes: Settings.shared.awakeAIStaleMinutes)
+        let hooked: Set<String> = AwakeController.claudeHooksInstalled() ? ["Claude Code"] : []
+        let reading = monitor.sample(hookStaleMinutes: Settings.shared.awakeAIStaleMinutes, hookedTools: hooked)
         if round > 0 {
-            print("\(Date().formatted(date: .omitted, time: .standard)) — \(reading.isWorking ? AwakeController.describe(reading.sessions) : "nessuna IA al lavoro")")
+            let source = reading.onlyHooks ? " (dagli hook)" : ""
+            print("\(Date().formatted(date: .omitted, time: .standard)) — \(reading.isWorking ? AwakeController.describe(reading.sessions) + source : "nessuna IA al lavoro")\(hooked.isEmpty ? "" : " · hook di Claude installati")")
             monitor.explain().forEach { print("   \($0)") }
         }
         Thread.sleep(forTimeInterval: 3)

@@ -81,6 +81,11 @@ final class AwakeController: ObservableObject {
     static let aiDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".menustats/ai")
     private var aiTimer: Timer?
     private lazy var aiMonitor = AIActivityMonitor()
+    /// Seconds after Claude's Stop event before the session ends.
+    static let hookGrace: TimeInterval = 10
+    private var claudeHooked = false
+    private var hooksCheckedAt = Date.distantPast
+    private var lastWorkFromHooks = false
     /// Replaces the real detection in tests.
     var aiReading: (() -> AIActivityMonitor.Reading)?
     /// When the last AI activity stopped; the session ends once this is older than the chosen grace period.
@@ -314,29 +319,88 @@ final class AwakeController: ObservableObject {
     static func aiStartCommand(name: String) -> String { "mkdir -p ~/.menustats/ai && touch ~/.menustats/ai/\(name)" }
     static func aiStopCommand(name: String) -> String { "rm -f ~/.menustats/ai/\(name)" }
 
-    /// The `hooks` section for Claude Code's settings.json. Claude Code sends the session id as JSON on stdin,
-    /// so each session gets its own file and several can work at once.
-    static func claudeCodeHooksJSON() -> String {
+    /// Claude Code events that mean "working" (also refresh the signal) and "done" (remove it). Notification fires
+    /// when Claude waits for the user (a permission, an answer): not working, so the Mac may sleep meanwhile.
+    static let claudeWorkingEvents = ["UserPromptSubmit", "PreToolUse", "PostToolUse"]
+    static let claudeDoneEvents = ["Stop", "SessionEnd", "Notification"]
+    /// Marks our commands, to recognize them in settings.json.
+    static let hookMarker = ".menustats/ai"
+
+    /// The commands of the hooks. Claude Code sends the session id as JSON on stdin, so each session gets its own file
+    /// and several can work at once.
+    static func claudeHookCommands() -> (working: String, done: String) {
         // `tr` keeps only letters, digits, "-" and "_": the id can never add a "/" and leave the folder.
         let session = #"s=$(sed -n 's/.*"session_id" *: *"\([^"]*\)".*/\1/p' | head -1 | tr -cd 'A-Za-z0-9_-'); f="$HOME/.menustats/ai/claude-${s:-x}"; "#
-        let working = session + #"mkdir -p "$HOME/.menustats/ai" && touch "$f""#
-        let done = session + #"rm -f "$f""#
+        return (session + #"mkdir -p "$HOME/.menustats/ai" && touch "$f""#, session + #"rm -f "$f""#)
+    }
+
+    private static func hookEntries() -> [String: [[String: Any]]] {
+        let commands = claudeHookCommands()
         func event(_ command: String) -> [[String: Any]] { [["hooks": [["type": "command", "command": command]]]] }
-        let hooks: [String: Any] = [
-            "UserPromptSubmit": event(working),
-            "PostToolUse": event(working),
-            "Stop": event(done),
-            "SessionEnd": event(done),
-        ]
-        let data = try? JSONSerialization.data(withJSONObject: ["hooks": hooks], options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        var hooks: [String: [[String: Any]]] = [:]
+        for name in claudeWorkingEvents { hooks[name] = event(commands.working) }
+        for name in claudeDoneEvents { hooks[name] = event(commands.done) }
+        return hooks
+    }
+
+    /// The `hooks` section for Claude Code's settings.json (shown and copied in Settings).
+    static func claudeCodeHooksJSON() -> String {
+        let data = try? JSONSerialization.data(withJSONObject: ["hooks": hookEntries()], options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         return data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 
+    static let claudeSettingsURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+
+    /// True when Claude Code's settings contain MenuStats' hooks for every event.
+    static func claudeHooksInstalled(settings url: URL = claudeSettingsURL) -> Bool {
+        guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any] else { return false }
+        return (claudeWorkingEvents + claudeDoneEvents).allSatisfy { name in
+            ((hooks[name] as? [[String: Any]]) ?? []).contains(where: isOurs)
+        }
+    }
+
+    private static func isOurs(_ group: [String: Any]) -> Bool {
+        ((group["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.contains(hookMarker) == true }
+    }
+
+    /// Adds (or with `install: false` removes) MenuStats' hooks in Claude Code's settings.json, keeping everything else.
+    /// The file as it was is saved next to it once, as settings.json.menustats-backup.
+    static func setClaudeHooks(installed install: Bool, settings url: URL = claudeSettingsURL) throws {
+        var root: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw NSError(domain: "MenuStats", code: 1, userInfo: [NSLocalizedDescriptionKey: "settings.json di Claude non è un oggetto JSON"])
+            }
+            root = parsed
+            let backup = url.appendingPathExtension("menustats-backup")
+            if !FileManager.default.fileExists(atPath: backup.path) { try data.write(to: backup) }
+        }
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+        for name in claudeWorkingEvents + claudeDoneEvents {
+            var groups = ((hooks[name] as? [[String: Any]]) ?? []).filter { !isOurs($0) }
+            if install { groups += hookEntries()[name] ?? [] }
+            hooks[name] = groups.isEmpty ? nil : groups
+        }
+        root["hooks"] = hooks.isEmpty ? nil : hooks
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        try data.write(to: url, options: .atomic)
+    }
+
     func checkAI(now: Date = Date()) {
-        let reading = aiReading?() ?? aiMonitor.sample(hookStaleMinutes: settings.awakeAIStaleMinutes)
+        if now.timeIntervalSince(hooksCheckedAt) > 30 {
+            hooksCheckedAt = now
+            claudeHooked = Self.claudeHooksInstalled()
+        }
+        let reading = aiReading?() ?? aiMonitor.sample(hookStaleMinutes: settings.awakeAIStaleMinutes,
+                                                       hookedTools: claudeHooked ? ["Claude Code"] : [], now: now)
+        if reading.isWorking { lastWorkFromHooks = reading.onlyHooks }
         if reading.isWorking { aiIdleSince = nil } else if aiIdleSince == nil { aiIdleSince = now }
-        // Pauses while a model thinks write nothing and use no CPU: only a long quiet spell means the work is done.
-        let finished = aiIdleSince.map { now.timeIntervalSince($0) >= Double(settings.awakeAIGraceMinutes) * 60 } ?? false
+        // Hooks say exactly when the work ends: a few seconds are enough (a new prompt right after keeps the session).
+        // Estimates can't tell a thinking pause from the end: only a long quiet spell counts.
+        let grace = lastWorkFromHooks ? Self.hookGrace : Double(settings.awakeAIGraceMinutes) * 60
+        let finished = aiIdleSince.map { now.timeIntervalSince($0) >= grace } ?? false
         if finished { aiSnoozed = false }
         if case .ai = state.kind, state.isActive {
             if finished {
