@@ -54,30 +54,33 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $navigation.page) {
-                Section {
-                    row(.general)
-                    row(.menubar)
+            // The quit button sits below the list, not in a safe-area inset: the sidebar list ignores the
+            // inset on recent macOS, so the last rows scrolled under the button and could not be reached.
+            VStack(spacing: 0) {
+                List(selection: $navigation.page) {
+                    Section {
+                        row(.general)
+                        row(.menubar)
+                    }
+                    Section("Moduli") {
+                        ForEach(ModuleID.allCases.filter { $0.isAvailable || $0 == .fans }) { row(.module($0)) }
+                    }
+                    Section {
+                        row(.widgets)
+                        row(.updates)
+                        row(.map)
+                        row(.notifications)
+                        row(.about)
+                    }
                 }
-                Section("Moduli") {
-                    ForEach(ModuleID.allCases.filter { $0.isAvailable || $0 == .fans }) { row(.module($0)) }
-                }
-                Section {
-                    row(.widgets)
-                    row(.updates)
-                    row(.map)
-                    row(.notifications)
-                    row(.about)
-                }
-            }
-            .navigationSplitViewColumnWidth(190)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Divider()
                 Button(role: .destructive) { NSApp.terminate(nil) } label: {
                     Label("Esci da MenuStats", systemImage: "power").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
                 .padding(10)
             }
+            .navigationSplitViewColumnWidth(190)
         } detail: {
             ScrollView {
                 detail
