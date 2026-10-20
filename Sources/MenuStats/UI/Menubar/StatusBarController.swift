@@ -41,6 +41,7 @@ final class StatusBarController: NSObject {
 
         // objectWillChange fires before the new value is stored; rebuild on the next run loop pass.
         settings.objectWillChange.debounce(for: .milliseconds(30), scheduler: RunLoop.main).sink { [weak self] _ in
+            self?.debug("impostazioni cambiate: livello \(self?.fitLevel ?? -1) -> 0")
             self?.fitLevel = 0
             self?.rebuild()
         }.store(in: &cancellables)
@@ -87,10 +88,43 @@ final class StatusBarController: NSObject {
 
     /// How much MenuStats is shrunk to stay visible (0 = as configured). Reset when space may have freed up.
     private var fitLevel = 0
+
+    /// Diagnostics for the automatic fit, on with `MENUSTATS_DEBUG=1` (run the app from a terminal to read them).
+    private func debug(_ text: @autoclosure () -> String) {
+        guard ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil else { return }
+        NSLog("MENUSTATS \(text())")
+    }
     private var pinApplied: Bool?
     private var fitCheck: DispatchWorkItem?
+    private var confirmation = FitConfirmation()
 
     private var maxFitLevel: Int { max(settings.visibleModules.count, 1) }
+
+    /// Where macOS put the items, as one number that changes when any of them moves or resizes.
+    private var layoutSignature: Double {
+        entries.reduce(0) { total, entry in
+            guard let frame = entry.item.button?.window?.frame else { return total }
+            return total + Double(frame.minX) * 3 + Double(frame.width)
+        }
+    }
+
+    private var restoreWork: DispatchWorkItem?
+
+    private func scheduleRestore() {
+        guard restoreWork == nil, let delay = confirmation.restoreDelay else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            restoreWork = nil
+            guard fitLevel > 0 else { return }
+            debug("prova a ripristinare: livello \(fitLevel) -> \(fitLevel - 1)")
+            fitLevel -= 1
+            confirmation.beganRestore()
+            confirmation.layoutChanged(at: Date(), signature: layoutSignature)
+            rebuild()
+        }
+        restoreWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
 
     /// macOS places items with a smaller preferred position closer to the clock. Written before each item is
     /// created, so MenuStats stays at the right end and other apps' icons overflow first.
@@ -100,9 +134,17 @@ final class StatusBarController: NSObject {
     }
 
     /// True when macOS isn't showing the item: behind the notch, pushed off screen or into the overflow.
-    private func isHidden(_ item: NSStatusItem) -> Bool {
+    /// Whether macOS left the item out for lack of room: ordered out, off screen or behind the notch. The window's
+    /// occlusion state is not used: it also turns "not visible" whenever the front app keeps a window over the menu bar
+    /// (Claude keeps a transparent one there), when MenuStats itself is in front, or on the lock screen, and shrinking on
+    /// it collapsed the bar to the CPU alone.
+    private func isOutOfRoom(_ item: NSStatusItem) -> Bool {
         guard let window = item.button?.window else { return false }
-        guard window.isVisible, window.occlusionState.contains(.visible) else { return true }
+        return !window.isVisible || isOutOfRoom(window)
+    }
+
+    /// Ordered out, off screen or behind the notch: macOS had no room for it.
+    private func isOutOfRoom(_ window: NSWindow) -> Bool {
         let frame = window.frame
         guard let screen = window.screen ?? NSScreen.screens.first(where: { $0.frame.intersects(frame) }) else { return true }
         if frame.maxX <= screen.frame.minX || frame.minX >= screen.frame.maxX { return true }
@@ -120,18 +162,39 @@ final class StatusBarController: NSObject {
 
     private func checkFit() {
         guard settings.autoFitMenubar, !entries.isEmpty else { return }
-        let hidden = entries.contains { isHidden($0.item) }
+        let hidden = entries.contains { isOutOfRoom($0.item) }
+        let verdict = confirmation.observe(hidden: hidden, signature: layoutSignature, at: Date())
         if ProcessInfo.processInfo.environment["MENUSTATS_DEBUG"] != nil {
-            NSLog("MENUSTATS spazio: livello \(fitLevel), nascosto \(hidden), finestre \(entries.map { $0.item.button?.window?.frame ?? .zero })")
+            let details = entries.map { entry -> String in
+                guard let window = entry.item.button?.window else { return "senza finestra" }
+                return "visibile=\(window.isVisible) occlusione=\(window.occlusionState.rawValue) schermo=\(window.screen?.frame ?? .zero) frame=\(window.frame)"
+            }
+            let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+            let screen = entries.first?.item.button?.window?.screen
+            let bar = screen.map { "barra=\($0.frame.maxY - $0.visibleFrame.maxY) schermo=\($0.frame) visibile=\($0.visibleFrame)" } ?? "senza schermo"
+            NSLog("MENUSTATS spazio: app in primo piano=\(front) \(bar) livello \(fitLevel), fuori spazio \(hidden), verdetto \(verdict), \(details)")
         }
-        guard hidden, fitLevel < maxFitLevel else { return }
-        fitLevel += 1
-        rebuild()
+        switch verdict {
+        case .fine:
+            // Shrunk earlier, fits now: try one step wider after a while (it may have been a passing lack of room).
+            if fitLevel > 0 { scheduleRestore() }
+        case .wait(let seconds): scheduleFitCheck(after: seconds)
+        case .shrink:
+            guard fitLevel < maxFitLevel else { return }
+            debug("riduco: livello \(fitLevel) -> \(fitLevel + 1)")
+            fitLevel += 1
+            confirmation.layoutChanged(at: Date(), signature: layoutSignature)
+            rebuild()
+        }
     }
 
     /// Something that changes the room in the menu bar happened: start again from the full bar.
     private func resetFit() {
+        debug("resetFit (livello \(fitLevel))")
+        confirmation.roomMayHaveChanged()
         guard fitLevel > 0 else { scheduleFitCheck(); return }
+        restoreWork?.cancel()
+        restoreWork = nil
         fitLevel = 0
         rebuild()
     }
@@ -151,6 +214,7 @@ final class StatusBarController: NSObject {
                                                queue: .main) { [weak self] note in
             guard let self, let window = note.object as? NSWindow,
                   entries.contains(where: { $0.item.button?.window === window }) else { return }
+            debug("occlusione cambiata: visibile=\(window.occlusionState.contains(.visible)) frame=\(window.frame)")
             scheduleFitCheck(after: 0.3)
         }
     }
@@ -160,6 +224,7 @@ final class StatusBarController: NSObject {
         // Turning "next to the clock" on recreates the items, since macOS reads the position only when one is created.
         if wanted != entries.map(\.modules) || (settings.pinNearClock && pinApplied != true) {
             pinApplied = settings.pinNearClock
+            confirmation.layoutChanged(at: Date(), signature: layoutSignature)
             entries.forEach { NSStatusBar.system.removeStatusItem($0.item) }
             // New status items appear to the left of older ones, so create them right-to-left.
             entries = wanted.reversed().enumerated().map { rank, modules in
@@ -211,6 +276,7 @@ final class StatusBarController: NSObject {
             let length = ceil(rendered.image.size.width) + 2
             if abs(entries[index].item.length - length) > 0.5 {
                 entries[index].item.length = length
+                confirmation.layoutChanged(at: Date(), signature: layoutSignature)
                 scheduleFitCheck() // a wider value can push MenuStats out of the bar
             }
             entries[index].hitRanges = rendered.hitRanges
@@ -279,6 +345,7 @@ final class StatusBarController: NSObject {
     // MARK: - Clicks
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
+        debug("clic sulla barra (livello \(fitLevel))")
         guard let entry = entries.first(where: { $0.item.button === sender }), let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
