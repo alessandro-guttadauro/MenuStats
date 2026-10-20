@@ -2,6 +2,7 @@ import CIOKitPrivate
 import Foundation
 import IOKit
 import IOKit.ps
+import IOKit.pwr_mgt
 import MenuStatsShared
 
 /// Keeps the Mac awake with the lid closed through the "SleepDisabled" power setting (what `pmset disablesleep 1` sets).
@@ -15,8 +16,12 @@ final class LidController {
     struct Power {
         var isSleepDisabled: () -> Bool?
         var setSleepDisabled: (Bool) -> Bool
+        /// The lid is closed and closing it would put the Mac to sleep (no external display in clamshell mode).
+        var lidClosedShouldSleep: () -> Bool = { false }
+        var sleepNow: () -> Void = {}
 
-        static let system = Power(isSleepDisabled: { LidController.sleepDisabled }, setSleepDisabled: LidController.setSleepDisabled)
+        static let system = Power(isSleepDisabled: { LidController.sleepDisabled }, setSleepDisabled: LidController.setSleepDisabled,
+                                  lidClosedShouldSleep: LidController.lidClosedShouldSleep, sleepNow: LidController.sleepNow)
     }
 
     private let queue = DispatchQueue(label: "local.menustats.helper.lid")
@@ -108,6 +113,12 @@ final class LidController {
         if FileManager.default.fileExists(atPath: marker.path) {
             if !power.setSleepDisabled(false) { NSLog("MenuStatsHelper: could not enable sleep again") }
             try? FileManager.default.removeItem(at: marker)
+            // macOS decides to sleep when the lid closes: if it was closed while held, giving sleep back isn't enough
+            // and the Mac would stay on until the lid is opened again. Do what closing it now would do.
+            if power.lidClosedShouldSleep() {
+                NSLog("MenuStatsHelper: lid closed, sleeping now")
+                power.sleepNow()
+            }
         }
         watchdog?.cancel()
         watchdog = nil
@@ -164,6 +175,24 @@ final class LidController {
             return current / maximum
         }
         return nil
+    }
+
+    private static func rootDomainBool(_ key: String) -> Bool? {
+        let root = IORegistryEntryFromPath(kIOMainPortDefault, "IOPower:/IOPowerConnection/IOPMrootDomain")
+        guard root != 0 else { return nil }
+        defer { IOObjectRelease(root) }
+        return IORegistryEntryCreateCFProperty(root, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool
+    }
+
+    static func lidClosedShouldSleep() -> Bool {
+        rootDomainBool("AppleClamshellState") == true && rootDomainBool("AppleClamshellCausesSleep") == true
+    }
+
+    static func sleepNow() {
+        let port = IOPMFindPowerManagement(kIOMainPortDefault)
+        guard port != 0 else { return }
+        defer { IOServiceClose(port) }
+        _ = IOPMSleepSystem(port)
     }
 
     /// macOS's "SleepDisabled" power setting, the one `pmset disablesleep` changes and `pmset -g` shows.

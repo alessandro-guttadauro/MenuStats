@@ -8,13 +8,15 @@ final class LidControllerTests: XCTestCase {
         var disabled: Bool? = false
         var refuse = false
         var writes: [Bool] = []
+        var lidClosed = false
+        var sleeps = 0
         var power: LidController.Power {
             LidController.Power(isSleepDisabled: { self.disabled }, setSleepDisabled: { value in
                 self.writes.append(value)
                 guard !self.refuse else { return false }
                 self.disabled = value
                 return true
-            })
+            }, lidClosedShouldSleep: { self.lidClosed }, sleepNow: { self.sleeps += 1 })
         }
     }
 
@@ -115,6 +117,24 @@ final class LidControllerTests: XCTestCase {
         XCTAssertEqual(lid.acquire(owner: owner), "macOS ha rifiutato di disattivare lo stop")
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
         XCTAssertEqual(lid.holderCount, 0)
+    }
+
+    func testLidClosedWhenSleepComesBackSleepsAtOnce() {
+        let fake = FakePower()
+        let lid = make(fake)
+        XCTAssertNil(lid.acquire(owner: owner))
+        fake.lidClosed = true // closed during the session: the Mac stayed awake
+        lid.release(owner: owner, reason: "fine sessione")
+        XCTAssertEqual(fake.disabled, false)
+        XCTAssertEqual(fake.sleeps, 1, "the Mac goes to sleep as if the lid had just been closed")
+    }
+
+    func testLidOpenWhenSleepComesBackDoesNothingElse() {
+        let fake = FakePower()
+        let lid = make(fake)
+        XCTAssertNil(lid.acquire(owner: owner))
+        lid.release(owner: owner, reason: "fine sessione")
+        XCTAssertEqual(fake.sleeps, 0)
     }
 
     func testRestoreDropsEveryone() {
