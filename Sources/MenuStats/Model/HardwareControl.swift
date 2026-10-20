@@ -4,7 +4,7 @@ import Combine
 import MenuStatsShared
 import ServiceManagement
 
-/// Fan control (through the root helper) and the macOS charge limit (no root needed).
+/// Fan control and lid-closed awake (through the root helper) and the macOS charge limit (no root needed).
 /// Custom fan speeds live only as long as the app: the helper puts fans back to automatic when MenuStats quits or
 /// crashes and before sleep, so they are never saved.
 final class HardwareControl: ObservableObject {
@@ -32,6 +32,13 @@ final class HardwareControl: ObservableObject {
     @Published private(set) var fanError: String?
     @Published private(set) var busy = false
 
+    /// The helper keeps the Mac awake with the lid closed for this app.
+    @Published private(set) var lidAwake = false
+    /// Why the helper refused or dropped lid-closed awake; nil while it works or was never asked.
+    @Published private(set) var lidError: String?
+    /// Bumped on every lid request, so a late reply to an older one is ignored.
+    private var lidRequest = 0
+
     @Published private(set) var chargeLimitSupported = false
     /// Current charge limit in percent, 100 when off; nil when unknown.
     @Published private(set) var chargeLimit: Int?
@@ -39,11 +46,16 @@ final class HardwareControl: ObservableObject {
 
     static let chargeLimits = [80, 90, 100]
 
-    private let service = SMAppService.daemon(plistName: HelperConstants.plistName)
+    /// This build's helper name (see HelperConstants.label).
+    static let helperLabel = HelperConstants.label(bundleURL: Bundle.main.bundleURL)
+    /// The helper name last seen registered, to move an installed helper to a new build's name.
+    private static let registeredLabelKey = "helperLabel"
+    private let service = SMAppService.daemon(plistName: HelperConstants.plistName(label: helperLabel))
     private var connection: NSXPCConnection?
     private var observers: [NSObjectProtocol] = []
 
     init() {
+        migrateHelper()
         refreshHelperState()
         refreshChargeLimit()
         // The helper hands fans back to macOS before sleep; mirror that here.
@@ -65,10 +77,40 @@ final class HardwareControl: ObservableObject {
         switch service.status {
         case .enabled:
             helperState = .installed
+            UserDefaults.standard.set(Self.helperLabel, forKey: Self.registeredLabelKey)
             checkVersion()
         case .requiresApproval: helperState = .requiresApproval
         default: helperState = .notInstalled
         }
+    }
+
+    /// After an update that changed the helper, registers it under its new name and drops the old one, so the user
+    /// does nothing: the app is already allowed in Login Items, so macOS asks no approval for it.
+    private func migrateHelper() {
+        guard LoginItem.isAvailable, service.status != .enabled else { return }
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: Self.registeredLabelKey)
+            ?? (Self.launchdKnows(HelperConstants.legacyLabel) ? HelperConstants.legacyLabel : nil)
+        guard let previous, previous != Self.helperLabel else { return }
+        defaults.set(Self.helperLabel, forKey: Self.registeredLabelKey) // one attempt per name, never a loop
+        try? SMAppService.daemon(plistName: HelperConstants.plistName(label: previous)).unregister()
+        do {
+            try service.register()
+            NSLog("MenuStats: helper moved from \(previous) to \(Self.helperLabel)")
+        } catch {
+            NSLog("MenuStats: helper migration failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func launchdKnows(_ label: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "system/\(label)"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     func installHelper() {
@@ -87,6 +129,8 @@ final class HardwareControl: ObservableObject {
             connection?.invalidate()
             connection = nil
             fanTargets = [:]
+            lidAwake = false
+            UserDefaults.standard.removeObject(forKey: Self.registeredLabelKey)
             do { try service.unregister() } catch { fanError = "Rimozione non riuscita: \(error.localizedDescription)" }
             refreshHelperState()
         }
@@ -99,6 +143,38 @@ final class HardwareControl: ObservableObject {
         helper.version { [weak self] version in
             DispatchQueue.main.async {
                 if version != HelperConstants.version { self?.helperState = .outdated }
+            }
+        }
+    }
+
+    // MARK: Lid closed
+
+    /// Asks the helper to keep (or stop keeping) the Mac awake with the lid closed. Asking again renews the lease.
+    func setLidAwake(_ on: Bool) {
+        lidRequest += 1
+        let request = lidRequest
+        guard on else {
+            guard lidAwake || connection != nil else { return }
+            lidAwake = false
+            call({ helper, done in helper.setLidAwake(false, reply: done) }) { _ in }
+            return
+        }
+        guard canUseHelper else { lidAwake = false; lidError = "Installa l'helper per restare sveglio col coperchio chiuso"; return }
+        call({ helper, done in helper.setLidAwake(true, reply: done) }) { [weak self] error in
+            guard let self, request == lidRequest else { return }
+            lidAwake = error == nil
+            lidError = error
+        }
+    }
+
+    /// Keeps the helper's lease alive; learns if a failsafe (heat, battery) gave sleep back to macOS.
+    func renewLidAwake() {
+        guard lidAwake, let helper = proxy({ _ in }) else { return }
+        helper.renewLidAwake { [weak self] held, reason in
+            DispatchQueue.main.async {
+                guard let self, self.lidAwake, !held else { return }
+                self.lidAwake = false
+                self.lidError = reason.map { "Coperchio di nuovo attivo: \($0.lowercased())" } ?? "Coperchio di nuovo attivo"
             }
         }
     }
@@ -143,13 +219,17 @@ final class HardwareControl: ObservableObject {
     /// One long-lived connection: the helper resets the fans when it goes away, i.e. when this process ends.
     private func makeConnection() -> NSXPCConnection {
         if let connection { return connection }
-        let connection = NSXPCConnection(machServiceName: HelperConstants.machService, options: .privileged)
+        let connection = NSXPCConnection(machServiceName: Self.helperLabel, options: .privileged)
         connection.remoteObjectInterface = NSXPCInterface(with: MenuStatsHelperProtocol.self)
         if let requirement = Self.helperRequirement() { connection.setCodeSigningRequirement(requirement) }
         let lost = { [weak self] in
             DispatchQueue.main.async {
                 self?.connection = nil
                 self?.fanTargets = [:] // the helper restored automatic mode
+                if self?.lidAwake == true { // and let the Mac sleep with the lid closed again
+                    self?.lidAwake = false
+                    self?.lidError = "Helper riavviato: coperchio di nuovo attivo"
+                }
             }
         }
         connection.invalidationHandler = lost

@@ -24,9 +24,11 @@ final class AppModel: ObservableObject {
 
     let settings: Settings
     let history: HistoryStore
-    let hardware = HardwareControl()
+    let hardware: HardwareControl
     /// Keep-awake sessions (power assertions); idle until the user starts one.
     let awake: AwakeController
+    /// Locks the Mac when chosen devices move away; idle unless switched on in Settings.
+    let proximity: ProximityLock
     /// Weather from Open-Meteo; idle (no network) unless the Weather module is enabled with a place chosen.
     let weather = WeatherService()
     /// The Mac's city for the Weather module's automatic mode; idle unless that mode is on.
@@ -49,7 +51,10 @@ final class AppModel: ObservableObject {
     init(settings: Settings = .shared, history: HistoryStore = HistoryStore()) {
         self.settings = settings
         self.history = history
-        self.awake = AwakeController(settings: settings)
+        let hardware = HardwareControl()
+        self.hardware = hardware
+        self.awake = AwakeController(settings: settings, hardware: hardware)
+        self.proximity = ProximityLock(settings: settings)
         networkProcessReader.onUpdate = { [weak self] usage in self?.networkProcesses = usage }
         settings.$refreshInterval
             .removeDuplicates()

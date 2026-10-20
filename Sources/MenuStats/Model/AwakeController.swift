@@ -36,7 +36,8 @@ struct AwakeState: Equatable {
 /// Keeps the Mac awake with the same public power assertions that `caffeinate` uses: one stops idle system sleep,
 /// an optional second one keeps the display on. Both are released when the session ends or MenuStats quits.
 /// A session can last a set time, until a file stops downloading, or while an app is running.
-/// Closing the lid still puts the Mac to sleep (that needs administrator rights, so it is not offered).
+/// Closing the lid still puts the Mac to sleep, unless the user turned on "lid closed" and installed the root helper:
+/// then the helper holds it for the session, with its own failsafes (see LidController in MenuStatsHelper).
 final class AwakeController: ObservableObject {
     @Published private(set) var state = AwakeState()
     /// Why the last session ended on its own (timer, low battery, download done…); cleared when a new one starts.
@@ -52,6 +53,12 @@ final class AwakeController: ObservableObject {
     ]
 
     private let settings: Settings
+    /// The root helper's client, for lid-closed awake; nil in tests.
+    private let hardware: HardwareControl?
+    /// Renews the helper's lid lease. Separate from sampling, which pauses while the displays sleep (lid closed).
+    private var lidTimer: Timer?
+    /// Keeps App Nap from stretching `lidTimer` while the displays are off, which would let the lease run out.
+    private var lidActivity: NSObjectProtocol?
     private var systemAssertion = IOPMAssertionID(kIOPMNullAssertionID)
     private var displayAssertion = IOPMAssertionID(kIOPMNullAssertionID)
     private var timer: Timer?
@@ -68,8 +75,9 @@ final class AwakeController: ObservableObject {
     /// After the user ends an AI session by hand, the same activity does not restart it; it re-arms once the AI is idle.
     private var aiSnoozed = false
 
-    init(settings: Settings) {
+    init(settings: Settings, hardware: HardwareControl? = nil) {
         self.settings = settings
+        self.hardware = hardware
         if settings.awakeWatchAI { startWatchingAI() }
     }
 
@@ -133,6 +141,13 @@ final class AwakeController: ObservableObject {
         state.allowsDisplaySleep = allow
     }
 
+    /// Turns lid-closed awake on or off, for the running session too.
+    func setLidClosed(_ on: Bool) {
+        settings.awakeLidClosed = on
+        guard state.isActive else { return }
+        if on { holdLid() } else { releaseLid() }
+    }
+
     /// Turns "stay awake while an AI works" on or off (kept across launches).
     func setWatchAI(_ on: Bool) {
         settings.awakeWatchAI = on
@@ -165,6 +180,7 @@ final class AwakeController: ObservableObject {
         }
         state = AwakeState(isActive: true, kind: kind, endDate: end, startDate: Date(), allowsDisplaySleep: allowsDisplaySleep)
         lastEndReason = nil
+        if settings.awakeLidClosed { holdLid() }
         return true
     }
 
@@ -175,9 +191,32 @@ final class AwakeController: ObservableObject {
         if let terminationObserver { NSWorkspace.shared.notificationCenter.removeObserver(terminationObserver) }
         terminationObserver = nil
         watchedFile = nil
+        releaseLid()
         releaseAssertions()
         if state.isActive { state = AwakeState(isActive: false, allowsDisplaySleep: settings.awakeAllowDisplaySleep) }
         if let reason { lastEndReason = reason }
+    }
+
+    // MARK: - Lid closed
+
+    private func holdLid() {
+        guard let hardware else { return }
+        hardware.setLidAwake(true)
+        guard lidTimer == nil else { return }
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak hardware] _ in hardware?.renewLidAwake() }
+        timer.tolerance = 10
+        RunLoop.main.add(timer, forMode: .common)
+        lidTimer = timer
+        lidActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                                                            reason: "Rinnovo del Mac sveglio a coperchio chiuso")
+    }
+
+    private func releaseLid() {
+        lidTimer?.invalidate()
+        lidTimer = nil
+        if let lidActivity { ProcessInfo.processInfo.endActivity(lidActivity) }
+        lidActivity = nil
+        hardware?.setLidAwake(false)
     }
 
     // MARK: - AI activity

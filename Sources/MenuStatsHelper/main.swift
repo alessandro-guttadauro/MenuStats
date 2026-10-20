@@ -1,16 +1,19 @@
 import CIOKitPrivate
 import Foundation
+import IOKit.ps
 import IOKit.pwr_mgt
 import MenuStatsShared
 import Darwin
 import Security
 
-// MenuStatsHelper: LaunchDaemon (root) that writes the fan keys of the SMC for MenuStats.
+// MenuStatsHelper: LaunchDaemon (root) that writes the fan keys of the SMC and keeps the Mac awake with the lid closed.
 // Safety rules, all enforced here and not in the app:
 // - only the exact MenuStats.app that contains this helper may connect (code-signing requirement on the connection);
 // - speeds below the factory minimum or above the maximum are refused;
 // - fans go back to automatic when the client disconnects (quit, crash), before sleep, on SIGTERM,
-//   when macOS reports serious thermal pressure, and at helper start.
+//   when macOS reports serious thermal pressure, and at helper start;
+// - the lid-closed awake switch follows the same rules (see LidController), plus a lease the app must keep renewing
+//   and a battery floor.
 
 final class SMC {
     private let connection = MSSMCOpen()
@@ -126,23 +129,192 @@ final class FanController {
     }
 }
 
+/// Keeps the Mac awake with the lid closed through IOPMrootDomain's "SleepDisabled" (what `pmset disablesleep 1` sets).
+/// That blocks every kind of sleep, so it is only ever held on behalf of a connected app, and handed back to macOS when:
+/// the app asks, the app quits or crashes, the app stops renewing its lease (hung), the helper is stopped, macOS reports
+/// serious thermal pressure, or the battery is nearly empty. A marker file written before the switch survives a helper
+/// crash or a power cut, so the next helper start (RunAtLoad, also at boot) switches it back off.
+/// A SleepDisabled already set by someone else (the user with pmset) is never touched.
+final class LidController {
+    private let queue = DispatchQueue(label: "local.menustats.helper.lid")
+    private static let marker = URL(fileURLWithPath: "/Library/Application Support/MenuStats/lid-awake")
+    /// Client → last renewal.
+    private var holders: [ObjectIdentifier: Date] = [:]
+    /// Why the last holders were dropped, for the app.
+    private var releaseReason: String?
+    private var watchdog: DispatchSourceTimer?
+
+    /// At helper start: undo a switch left on by a previous helper that died while holding it.
+    func recover() {
+        queue.sync {
+            guard FileManager.default.fileExists(atPath: Self.marker.path) else { return }
+            NSLog("MenuStatsHelper: sleep enabled again (left on by a previous run)")
+            switchOffLocked()
+        }
+    }
+
+    func acquire(owner: ObjectIdentifier) -> String? {
+        queue.sync {
+            if let refusal = Self.failsafeReason() { return refusal }
+            if holders.isEmpty, !FileManager.default.fileExists(atPath: Self.marker.path) {
+                if Self.sleepDisabled != true {
+                    // Marker first: if anything dies right after the switch, the next start still switches it back.
+                    do {
+                        try FileManager.default.createDirectory(at: Self.marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try Data().write(to: Self.marker)
+                    } catch {
+                        return "Impossibile preparare il ripristino: \(error.localizedDescription)"
+                    }
+                    guard Self.setSleepDisabled(true), Self.sleepDisabled == true else {
+                        try? FileManager.default.removeItem(at: Self.marker)
+                        return "macOS ha rifiutato di disattivare lo stop"
+                    }
+                    NSLog("MenuStatsHelper: Mac stays awake with the lid closed")
+                }
+                // else: SleepDisabled set by someone else; the lid already keeps the Mac awake and it is not ours to undo.
+            }
+            holders[owner] = Date()
+            releaseReason = nil
+            startWatchdogLocked()
+            return nil
+        }
+    }
+
+    func renew(owner: ObjectIdentifier) -> (Bool, String?) {
+        queue.sync {
+            guard holders[owner] != nil else { return (false, releaseReason) }
+            holders[owner] = Date()
+            return (true, nil)
+        }
+    }
+
+    func release(owner: ObjectIdentifier, reason: String) {
+        queue.sync {
+            guard holders.removeValue(forKey: owner) != nil, holders.isEmpty else { return }
+            NSLog("MenuStatsHelper: sleep enabled again (\(reason))")
+            switchOffLocked()
+        }
+    }
+
+    /// Drops every holder. Safe to call at any time, from any thread.
+    func restore(reason: String) {
+        queue.sync { restoreLocked(reason: reason) }
+    }
+
+    private func restoreLocked(reason: String) {
+        if !holders.isEmpty || FileManager.default.fileExists(atPath: Self.marker.path) {
+            NSLog("MenuStatsHelper: sleep enabled again (\(reason))")
+            releaseReason = reason
+        }
+        holders.removeAll()
+        switchOffLocked()
+    }
+
+    private func switchOffLocked() {
+        if FileManager.default.fileExists(atPath: Self.marker.path) {
+            if !Self.setSleepDisabled(false) { NSLog("MenuStatsHelper: could not enable sleep again") }
+            try? FileManager.default.removeItem(at: Self.marker)
+        }
+        watchdog?.cancel()
+        watchdog = nil
+    }
+
+    /// Every 20 s while held: expired leases, thermal pressure and battery.
+    private func startWatchdogLocked() {
+        guard watchdog == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 20, repeating: 20, leeway: .seconds(5))
+        timer.setEventHandler { [weak self] in self?.checkLocked() }
+        timer.resume()
+        watchdog = timer
+    }
+
+    private func checkLocked() {
+        if let reason = Self.failsafeReason() { restoreLocked(reason: reason); return }
+        let now = Date()
+        let expired = holders.filter { now.timeIntervalSince($0.value) > HelperConstants.lidLeaseSeconds }
+        if !expired.isEmpty, expired.count == holders.count {
+            restoreLocked(reason: "MenuStats non risponde")
+        } else {
+            for owner in expired.keys { holders[owner] = nil }
+        }
+    }
+
+    /// Conditions under which the lid must be able to put the Mac to sleep, whatever the app asks.
+    static func failsafeReason() -> String? {
+        if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+            return "Il Mac è troppo caldo"
+        }
+        if let charge = batteryCharge(), charge <= HelperConstants.lidMinimumBattery {
+            return "Batteria quasi scarica"
+        }
+        return nil
+    }
+
+    /// Charge 0…1 of the internal battery while running on it; nil on AC power or without a battery.
+    private static func batteryCharge() -> Double? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        for source in list {
+            guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as NSDictionary? as? [String: Any],
+                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
+                  description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue,
+                  let current = description[kIOPSCurrentCapacityKey] as? Double,
+                  let maximum = description[kIOPSMaxCapacityKey] as? Double, maximum > 0 else { continue }
+            return current / maximum
+        }
+        return nil
+    }
+
+    private static var rootDomain: io_registry_entry_t {
+        IORegistryEntryFromPath(kIOMainPortDefault, "IOPower:/IOPowerConnection/IOPMrootDomain")
+    }
+
+    static var sleepDisabled: Bool? {
+        let root = rootDomain
+        guard root != 0 else { return nil }
+        defer { IOObjectRelease(root) }
+        return IORegistryEntryCreateCFProperty(root, "SleepDisabled" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? Bool
+    }
+
+    /// Needs root: the kernel checks for administrator privilege before accepting it.
+    private static func setSleepDisabled(_ disabled: Bool) -> Bool {
+        let root = rootDomain
+        guard root != 0 else { return false }
+        defer { IOObjectRelease(root) }
+        return IORegistryEntrySetCFProperty(root, "SleepDisabled" as CFString, disabled ? kCFBooleanTrue : kCFBooleanFalse) == KERN_SUCCESS
+    }
+}
+
 final class HelperService: NSObject, MenuStatsHelperProtocol {
     let fans: FanController
+    let lid: LidController
     let owner: ObjectIdentifier
-    init(fans: FanController, owner: ObjectIdentifier) { self.fans = fans; self.owner = owner }
+    init(fans: FanController, lid: LidController, owner: ObjectIdentifier) { self.fans = fans; self.lid = lid; self.owner = owner }
 
     func version(reply: @escaping (Int) -> Void) { reply(HelperConstants.version) }
     func setFanSpeed(index: Int, rpm: Double, reply: @escaping (String?) -> Void) { reply(fans.setSpeed(index: index, rpm: rpm, owner: owner)) }
     func setFanAutomatic(index: Int, reply: @escaping (String?) -> Void) { reply(fans.setAutomatic(index: index)) }
     func resetFans(reply: @escaping (String?) -> Void) { fans.restore(reason: "richiesta dell'app"); reply(nil) }
+
+    func setLidAwake(_ on: Bool, reply: @escaping (String?) -> Void) {
+        if on { reply(lid.acquire(owner: owner)) } else { lid.release(owner: owner, reason: "richiesta dell'app"); reply(nil) }
+    }
+
+    func renewLidAwake(reply: @escaping (Bool, String?) -> Void) {
+        let (held, reason) = lid.renew(owner: owner)
+        reply(held, reason)
+    }
 }
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     let fans: FanController
+    let lid: LidController
     private var connections = 0
     private let lock = NSLock()
 
-    init(fans: FanController) { self.fans = fans }
+    init(fans: FanController, lid: LidController) { self.fans = fans; self.lid = lid }
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         // Read on every connection: reinstalling the app (new ad hoc cdhash) must not need a helper restart.
@@ -154,7 +326,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         connection.setCodeSigningRequirement(requirement)
         connection.exportedInterface = NSXPCInterface(with: MenuStatsHelperProtocol.self)
         let owner = ObjectIdentifier(connection)
-        connection.exportedObject = HelperService(fans: fans, owner: owner)
+        connection.exportedObject = HelperService(fans: fans, lid: lid, owner: owner)
         connection.invalidationHandler = { [weak self] in self?.clientGone(owner) }
         lock.withLock { connections += 1 }
         connection.resume()
@@ -163,9 +335,11 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
 
     private func clientGone(_ owner: ObjectIdentifier) {
         fans.restore(owner: owner)
+        lid.release(owner: owner, reason: "app chiusa")
         let remaining = lock.withLock { connections -= 1; return connections }
         guard remaining <= 0 else { return }
         fans.restore(reason: "nessuna app collegata")
+        lid.restore(reason: "nessuna app collegata")
         // Nothing left to do: exit, so launchd starts the current binary on the next connection (after a reinstall).
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             if self?.lock.withLock({ self?.connections ?? 0 }) == 0 { exit(0) }
@@ -175,11 +349,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     /// Requirement matching the MenuStats.app this helper ships in: by Team ID when Developer ID signed,
     /// otherwise by the exact code hash of the app (ad hoc signatures have no certificate to pin).
     static func clientRequirement() -> String? {
-        // launchd starts BundleProgram with a relative argv[0], so ask the kernel for the absolute path.
-        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        guard proc_pidpath(getpid(), &path, UInt32(path.count)) > 0 else { return nil }
-        let helper = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
-        let app = helper.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        guard let app = appBundle() else { return nil }
         var code: SecStaticCode?
         guard app.pathExtension == "app", SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
               SecStaticCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }
@@ -195,10 +365,20 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     }
 }
 
+/// The MenuStats.app this helper ships in. launchd starts BundleProgram with a relative argv[0], so ask the kernel.
+func appBundle() -> URL? {
+    var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    guard proc_pidpath(getpid(), &path, UInt32(path.count)) > 0 else { return nil }
+    let helper = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
+    return helper.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+}
+
 // MARK: - Sleep and termination
 
 let fans = FanController()
 fans.restore(reason: "avvio dell'helper") // a previous helper may have died while fans were manual
+let lid = LidController()
+lid.recover()
 
 // iokit_common_msg(0x280) and (0x270); the C macros don't import into Swift.
 let messageSystemWillSleep: UInt32 = 0xE000_0280
@@ -223,7 +403,7 @@ var signalSources: [DispatchSourceSignal] = []
 for sig in [SIGTERM, SIGINT, SIGHUP] {
     signal(sig, SIG_IGN)
     let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-    source.setEventHandler { fans.restore(reason: "helper terminato"); exit(0) }
+    source.setEventHandler { fans.restore(reason: "helper terminato"); lid.restore(reason: "helper terminato"); exit(0) }
     source.resume()
     signalSources.append(source)
 }
@@ -232,11 +412,12 @@ for sig in [SIGTERM, SIGINT, SIGHUP] {
 let thermalObserver = NotificationCenter.default.addObserver(forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil) { _ in
     if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
         fans.restore(reason: "stress termico")
+        lid.restore(reason: "Il Mac è troppo caldo")
     }
 }
 
-let delegate = ListenerDelegate(fans: fans)
-let listener = NSXPCListener(machServiceName: HelperConstants.machService)
+let delegate = ListenerDelegate(fans: fans, lid: lid)
+let listener = NSXPCListener(machServiceName: appBundle().map(HelperConstants.label(bundleURL:)) ?? HelperConstants.legacyLabel)
 listener.delegate = delegate
 listener.resume()
 NSLog("MenuStatsHelper \(HelperConstants.version) ready")

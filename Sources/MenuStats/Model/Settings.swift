@@ -339,6 +339,8 @@ final class Settings: ObservableObject {
     @Published var awakeStyle: AwakeStyle { didSet { save(awakeStyle.rawValue, "awakeStyle") } }
     /// Awake sessions keep the Mac running but let the screen turn off.
     @Published var awakeAllowDisplaySleep: Bool { didSet { save(awakeAllowDisplaySleep, "awakeAllowDisplaySleep") } }
+    /// Also stay awake with the lid closed (through the root helper), while a session runs.
+    @Published var awakeLidClosed: Bool { didSet { save(awakeLidClosed, "awakeLidClosed") } }
     @Published var awakeEndOnLowBattery: Bool { didSet { save(awakeEndOnLowBattery, "awakeEndOnLowBattery") } }
     @Published var awakeLowBatteryThreshold: Double { didSet { save(awakeLowBatteryThreshold, "awakeLowBatteryThreshold") } }
     /// Last custom duration, in minutes, and how long a download may stay still before it counts as finished (seconds).
@@ -349,6 +351,21 @@ final class Settings: ObservableObject {
     @Published var awakeAIAllowDisplaySleep: Bool { didSet { save(awakeAIAllowDisplaySleep, "awakeAIAllowDisplaySleep") } }
     /// A signal not refreshed for this long (minutes) is ignored, e.g. after an interrupted run that never reported its end.
     @Published var awakeAIStaleMinutes: Int { didSet { save(awakeAIStaleMinutes, "awakeAIStaleMinutes") } }
+
+    // Nearby devices (Map tab)
+    /// The radar drawing in the Map tab's nearby-devices card; the list below it is always shown.
+    @Published var nearbyShowRadar: Bool { didSet { save(nearbyShowRadar, "nearbyShowRadar") } }
+    /// Lock the Mac when the chosen devices move away. Always on while enabled, whatever tab is open.
+    @Published var proximityLockEnabled: Bool { didSet { save(proximityLockEnabled, "proximityLockEnabled") } }
+    /// The devices to watch: Bluetooth address → name (the name is only kept to show it).
+    @Published var proximityLockDevices: [String: String] { didSet { save(proximityLockDevices, "proximityLockDevices") } }
+    /// How the chosen devices count: lock when any one of them is away, or only when all of them are.
+    @Published var proximityLockRequiresAll: Bool { didSet { save(proximityLockRequiresAll, "proximityLockRequiresAll") } }
+    /// Seconds a device must stay out of range before the Mac locks.
+    @Published var proximityLockGrace: Int { didSet { save(proximityLockGrace, "proximityLockGrace") } }
+    /// Also count a device as away when it is farther than `proximityLockDistance` meters (estimated from the signal).
+    @Published var proximityLockUseDistance: Bool { didSet { save(proximityLockUseDistance, "proximityLockUseDistance") } }
+    @Published var proximityLockDistance: Double { didSet { save(proximityLockDistance, "proximityLockDistance") } }
     @Published var weatherLocationMode: WeatherLocationMode { didSet { save(weatherLocationMode.rawValue, "weatherLocationMode") } }
     @Published var weatherLocation: WeatherLocation? {
         didSet {
@@ -433,6 +450,7 @@ final class Settings: ObservableObject {
         weatherStyle = string("weatherStyle", WeatherStyle.iconTemperature)
         awakeStyle = string("awakeStyle", AwakeStyle.iconTime)
         awakeAllowDisplaySleep = bool("awakeAllowDisplaySleep", false)
+        awakeLidClosed = bool("awakeLidClosed", false)
         awakeEndOnLowBattery = bool("awakeEndOnLowBattery", true)
         awakeLowBatteryThreshold = double("awakeLowBatteryThreshold", 0.2)
         awakeCustomMinutes = defaults.object(forKey: "awakeCustomMinutes") as? Int ?? 90
@@ -440,6 +458,13 @@ final class Settings: ObservableObject {
         awakeWatchAI = bool("awakeWatchAI", false)
         awakeAIAllowDisplaySleep = bool("awakeAIAllowDisplaySleep", true)
         awakeAIStaleMinutes = defaults.object(forKey: "awakeAIStaleMinutes") as? Int ?? 30
+        nearbyShowRadar = bool("nearbyShowRadar", true)
+        proximityLockEnabled = bool("proximityLockEnabled", false)
+        proximityLockDevices = defaults.dictionary(forKey: "proximityLockDevices") as? [String: String] ?? [:]
+        proximityLockRequiresAll = bool("proximityLockRequiresAll", false)
+        proximityLockGrace = defaults.object(forKey: "proximityLockGrace") as? Int ?? 30
+        proximityLockUseDistance = bool("proximityLockUseDistance", false)
+        proximityLockDistance = double("proximityLockDistance", 5)
         weatherLocationMode = string("weatherLocationMode", WeatherLocationMode.manual)
         weatherLocation = defaults.data(forKey: "weatherLocation").flatMap { try? JSONDecoder().decode(WeatherLocation.self, from: $0) }
 

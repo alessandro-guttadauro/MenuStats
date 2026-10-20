@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CryptoKit
 import Foundation
+import MenuStatsShared
 
 /// In-app updates from the GitHub releases: checks the latest release every few hours, shows a menu bar icon
 /// when a newer version exists, and installs it in place with one click.
@@ -237,7 +238,9 @@ final class Updater: ObservableObject {
     }
 
     /// Hands over to a small script that waits for MenuStats to quit, copies the new bundle over the installed
-    /// one in place (keeping the login item and the fan helper's registration valid), and opens it again.
+    /// one in place (keeping the login item valid), and opens it again. When the helper changed it comes under a new
+    /// name (see HelperConstants.label): the old app unregisters its own helper first, the new one registers its own.
+    /// The new app would also do it at launch; doing it here removes the old one cleanly.
     private func relaunch(into app: URL) {
         let destination = Bundle.main.bundleURL
         guard FileManager.default.isWritableFile(atPath: destination.deletingLastPathComponent().path) else {
@@ -247,21 +250,16 @@ final class Updater: ObservableObject {
         let script = """
         while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
         NEW="$2"; DEST="$3"
-        HELPER_CHANGED=1
-        cmp -s "$NEW/Contents/MacOS/MenuStatsHelper" "$DEST/Contents/MacOS/MenuStatsHelper" && HELPER_CHANGED=0
+        label() { /usr/libexec/PlistBuddy -c "Print :\(HelperConstants.labelKey)" "$1/Contents/Info.plist" 2>/dev/null || echo \(HelperConstants.legacyLabel); }
+        OLD_LABEL=$(label "$DEST"); NEW_LABEL=$(label "$NEW")
         HELPER_WAS_INSTALLED=0
-        [ $HELPER_CHANGED = 1 ] && launchctl print system/local.menustats.helper >/dev/null 2>&1 && HELPER_WAS_INSTALLED=1
+        [ "$OLD_LABEL" != "$NEW_LABEL" ] && launchctl print "system/$OLD_LABEL" >/dev/null 2>&1 && HELPER_WAS_INSTALLED=1
+        [ $HELPER_WAS_INSTALLED = 1 ] && "$DEST/Contents/MacOS/MenuStats" --uninstall-helper >/dev/null 2>&1
         /usr/bin/rsync -a --delete "$NEW/" "$DEST/" || exit 1
         LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
         "$LSREGISTER" -f "$DEST"
+        [ $HELPER_WAS_INSTALLED = 1 ] && "$DEST/Contents/MacOS/MenuStats" --install-helper >/dev/null 2>&1
         /usr/bin/open "$DEST"
-        if [ $HELPER_WAS_INSTALLED = 1 ]; then
-            sleep 3
-            "$DEST/Contents/MacOS/MenuStats" --uninstall-helper >/dev/null 2>&1
-            sleep 4
-            "$LSREGISTER" -f "$DEST"
-            "$DEST/Contents/MacOS/MenuStats" --install-helper >/dev/null 2>&1
-        fi
         rm -rf "$(dirname "$NEW")"
         """
         let process = Process()

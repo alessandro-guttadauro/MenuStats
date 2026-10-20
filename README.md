@@ -58,7 +58,8 @@ meteo, data e un modulo per tenere il Mac sveglio. Compatto, preciso e leggero.
    ```
 3. Da qui in poi gli aggiornamenti arrivano dall'app: Impostazioni ▸ **Aggiornamenti** (controllo automatico ogni
    6 ore, attivo di serie).
-4. Facoltativo, per controllare le ventole: Impostazioni ▸ **Ventole** ▸ *Installa helper*, poi consenti MenuStats
+4. Facoltativo, per controllare le ventole o restare svegli a coperchio chiuso: Impostazioni ▸ **Ventole** (o
+   **Sveglio**) ▸ *Installa helper*, poi consenti MenuStats
    in Impostazioni di Sistema ▸ Generali ▸ **Elementi login**.
 
 > **Requisiti**: Mac con Apple Silicon e macOS 13 o successivo (macOS 14 per i widget della scrivania). Sviluppato e verificato su MacBook Pro M3 Pro con
@@ -78,6 +79,24 @@ meteo, data e un modulo per tenere il Mac sveglio. Compatto, preciso e leggero.
 | **Meteo** · *facoltativo* | icona + temperatura | condizioni attuali, prossime 24 ore, 7 giorni con barre min/max |
 | **Data e ora** · *facoltativo* | 7 disposizioni, 12/24 ore | calendario del mese, settimana, alba e tramonto |
 | **Sveglio** · *facoltativo* | tazza con vapore, tempo rimanente | durata, durata personalizzata, finché un file si scarica, un'app è aperta o un'IA lavora; schermo acceso o libero, fine con batteria scarica |
+
+La scheda **Mappa** mostra dove si trova il Mac e, sotto, **i tuoi dispositivi vicini**: accessori Bluetooth associati
+(AirPods, tastiere, mouse, controller) e gli iPhone, iPad e Apple Watch che macOS riconosce, su un radar con la distanza stimata
+dal segnale. Sono solo i dispositivi che macOS già conosce (la stessa lista di Impostazioni di Sistema ▸ Bluetooth):
+MenuStats non cerca né mostra dispositivi di altre persone. Il Bluetooth dà la distanza, non la direzione. Il radar si
+può nascondere da Impostazioni ▸ Mappa; l'elenco con le distanze resta. Sotto c'è l'interruttore del blocco automatico
+(vedi sotto), già regolato come in Impostazioni.
+
+**Blocca il Mac se mi allontano** (Impostazioni ▸ Mappa, spento di default): scegli uno o più dei tuoi dispositivi, per
+esempio iPhone o Apple Watch, e un tempo di attesa (da 2 secondi a 5 minuti). Quando non li sente più per quel tempo, il
+Mac si blocca, come con Control-Comando-Q, senza permessi in più. Funziona sempre, anche a scheda chiusa, con una lettura
+ogni 1-60 secondi, secondo il tempo scelto, a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto; dopo il blocco non scatta di
+nuovo finché un dispositivo scelto non torna vicino, così sbloccare a mano non crea un ciclo di blocchi. Con più
+dispositivi scegli se blocca quando se ne allontana uno qualsiasi o tutti. Puoi anche impostare una **distanza massima in
+metri**: un dispositivo oltre quel limite conta come lontano, e accanto a ogni dispositivo vedi la distanza "ora" per
+tarare il valore. La distanza è una stima dal segnale e può sbagliare di diversi metri; macOS aggiorna il segnale di
+ogni dispositivo solo ogni pochi secondi, quindi i tempi molto brevi (2-5 secondi) non reagiscono davvero più in fretta e
+possono bloccare il Mac per un calo momentaneo.
 
 Su Mac senza ventole (MacBook Air) o senza batteria (desktop) i moduli che non servono si nascondono da soli.
 Clic su un modulo: si apre la sua scheda. Clic destro: Impostazioni, Monitoraggio Attività, Esci.
@@ -189,7 +208,9 @@ eccezioni, tutte **spente di default**:
 | Aggiornamenti | una richiesta all'API delle release di GitHub | ogni 6 ore (disattivabile), e il download solo quando lo chiedi |
 | IP pubblico | una richiesta a ipwho.is (e api4.ipify.org per l'IPv4) | opzione attiva e scheda Rete aperta, al massimo ogni 5 minuti |
 
-Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
+I dispositivi vicini della scheda Mappa si leggono sul Mac con `system_profiler`, senza scansionare il Bluetooth e senza
+permessi aggiuntivi: a scheda aperta, oppure in background solo se accendi il blocco per distanza. Nulla viene salvato o
+inviato. Il modulo Sveglio non usa la rete: legge soltanto la cartella `~/.menustats/ai` (file vuoti, vedi sotto) e le
 dimensioni del file che scegli di seguire. Il rilevamento della VPN, i sensori, i processi e lo storico restano sul Mac. Lo storico è un database SQLite di
 8 giorni in `~/Library/Application Support/MenuStats`.
 
@@ -209,8 +230,11 @@ Mentre una sessione è attiva la tazza in barra si riempie e fuma.
 - **Finché l'IA lavora**: un interruttore che resta acceso. Il Mac resta sveglio mentre uno strumento IA lavora e poi
   lascia andare da solo (vedi sotto).
 - Lo schermo può restare acceso o spegnersi, e la sessione può finire sotto una soglia di batteria.
-- Chiudere il coperchio mette comunque il Mac in stop: tenerlo acceso a coperchio chiuso richiede i privilegi di
-  amministratore e qui non è offerto.
+- **Coperchio chiuso** (facoltativo, sui portatili): con l'helper con privilegi installato, durante una sessione il
+  Mac resta sveglio anche a coperchio chiuso, come con `sudo pmset disablesleep 1`. Finché dura è sospeso anche Stop
+  dal menu Apple. Lo stop torna attivo da solo a fine sessione, se MenuStats si chiude, va in crash o non risponde
+  per 3 minuti, con stress termico, con la batteria sotto il 10% e al riavvio. Un `disablesleep` impostato a mano
+  non viene toccato. Senza quest'opzione chiudere il coperchio mette il Mac in stop.
 
 ### Finché l'IA lavora
 
@@ -291,7 +315,8 @@ come il sito o l'app di ChatGPT, non si possono collegare così: per loro c'è "
 
 - **Ventole**: un piccolo helper con privilegi (`MenuStatsHelper`, registrato con `SMAppService`) imposta la
   velocità tra il minimo e il massimo di fabbrica. Accetta solo questa copia di MenuStats e rimette le ventole in
-  automatico se l'app si chiude o va in crash, prima dello stop e con stress termico.
+  automatico se l'app si chiude o va in crash, prima dello stop e con stress termico. Lo stesso helper tiene
+  sveglio il Mac a coperchio chiuso per Sveglio.
 - **Limite di carica**: usa il limite nativo di macOS (80–100%), applicato dal sistema anche in stop e dopo il
   riavvio. Non serve l'helper.
 
@@ -304,6 +329,15 @@ come il sito o l'app di ChatGPT, non si possono collegare così: per loro c'è "
   sul client: cdhash con firma ad hoc, Team ID con Developer ID.
 - Su macOS 27 le chiavi SMC di carica (`CH0B`, `CHTE`) non sono più accessibili: il limite passa dal framework di
   sistema PowerUI (`Sources/CIOKitPrivate/chargelimit.m`). Verifica con `pmset -g battlimit`.
+- Coperchio chiuso: l'helper imposta la proprietà `SleepDisabled` di `IOPMrootDomain` (la stessa di
+  `pmset disablesleep`, il kernel la accetta solo da root). Prima scrive un segnaposto in
+  `/Library/Application Support/MenuStats/lid-awake`: se l'helper muore o manca la corrente, al riavvio (RunAtLoad)
+  lo trova e rimette lo stop. L'app rinnova la richiesta ogni minuto; dopo 3 minuti senza rinnovo l'helper la lascia.
+- Nome dell'helper: con la firma ad hoc macOS lega il daemon al code hash che aveva alla prima registrazione e non lo
+  aggiorna più, quindi un helper nuovo con lo stesso nome verrebbe rifiutato (*Launch Constraint Violation*).
+  `build-app.sh` gli dà un nome che dipende dal contenuto (`local.menustats.helper.<hash>`, scritto anche in
+  `MSHelperLabel` nell'Info.plist): a ogni aggiornamento che cambia l'helper l'updater toglie il vecchio e registra
+  il nuovo, e se serve lo fa l'app all'avvio. L'utente non deve fare nulla e macOS non chiede una nuova approvazione.
 - Per distribuire su altri Mac senza riapprovare l'helper a ogni versione servono Developer ID e notarizzazione:
   `SIGN_IDENTITY="Developer ID Application: …" ./scripts/build-app.sh`.
 
@@ -397,6 +431,13 @@ Grazie a chi ha già contribuito:
   in automatico con stress termico.
 - Il limite di carica parte dall'80%, come in macOS.
 - Con "una voce per modulo" la distanza tra le voci la decide macOS: la voce unica è più compatta.
+- I dispositivi vicini hanno la distanza ma non la direzione, e la stima può sbagliare di diversi metri (muri, corpo e
+  tasche cambiano il segnale). iPhone, iPad e Apple Watch compaiono solo quando macOS ne misura il segnale e li riconosce. Le
+  posizioni su mappa di Dov'è (iPhone, AirTag, amici) restano inaccessibili ad altre app.
+- Il blocco per distanza è una comodità, non una sicurezza: il segnale Bluetooth può restare anche a distanza o sparire
+  per un attimo, e cuffie e AirPods spariscono dal segnale quando li metti nella custodia (meglio iPhone o Apple Watch).
+  Per bloccare usa `SACLockScreenImmediate` del framework di sistema `login` (API non documentata, come le altre
+  usate dal progetto); se un macOS futuro la rimuove, ripiega sullo spegnimento dello schermo.
 - Sveglio non tiene acceso il Mac a coperchio chiuso. Con "finché l'IA lavora", uno strumento interrotto senza
   avviso (Esc) libera il Mac solo allo scadere del tempo di tolleranza. "Finché un'app è aperta" segue le app con
   finestra, non i processi di sistema.

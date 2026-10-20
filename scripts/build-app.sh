@@ -59,15 +59,19 @@ xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platfo
     --minimum-deployment-target 13.0 --app-icon AppIcon \
     --output-partial-info-plist build/AppIcon-partial.plist >/dev/null
 
-# Privileged helper for fan control, registered from the app with SMAppService.daemon (macOS 13+).
-cat > "$APP/Contents/Library/LaunchDaemons/local.menustats.helper.plist" <<'PLIST'
+# Privileged helper (fans, lid closed), registered from the app with SMAppService.daemon (macOS 13+).
+# Its name changes with its contents: macOS ties an ad hoc signed daemon to the code hash it had when first
+# registered and never updates it, so a changed helper under the old name would be refused (Launch Constraint
+# Violation). A new name gets a fresh registration; the app moves an installed helper to it by itself.
+HELPER_LABEL="local.menustats.helper.$(shasum -a 256 .build/release/MenuStatsHelper | cut -c1-10)"
+cat > "$APP/Contents/Library/LaunchDaemons/$HELPER_LABEL.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>local.menustats.helper</string>
+    <key>Label</key><string>$HELPER_LABEL</string>
     <key>BundleProgram</key><string>Contents/MacOS/MenuStatsHelper</string>
-    <key>MachServices</key><dict><key>local.menustats.helper</key><true/></dict>
+    <key>MachServices</key><dict><key>$HELPER_LABEL</key><true/></dict>
     <key>AssociatedBundleIdentifiers</key><array><string>local.menustats</string></array>
     <key>RunAtLoad</key><true/>
 </dict>
@@ -92,6 +96,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHumanReadableCopyright</key><string>© 2026 Thomas Addamo</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
+    <key>MSHelperLabel</key><string>${HELPER_LABEL}</string>
 </dict>
 </plist>
 PLIST

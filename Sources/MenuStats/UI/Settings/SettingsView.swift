@@ -267,12 +267,121 @@ struct MapSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSection(title: "Posizione", footnote: "La posizione viene chiesta a macOS solo con questa pagina o la scheda Mappa aperte. Le posizioni di Dov'è (iPhone, AirTag, amici) non sono accessibili ad altre app: il pulsante apre Dov'è.") {
+            SettingsSection(title: "Posizione", footnote: "La posizione viene chiesta a macOS solo con questa pagina o la scheda Mappa aperte. Le posizioni di Dov'è (iPhone, AirTag, amici) non sono accessibili ad altre app.") {
                 MapTab(mapHeight: 360)
             }
+            NearbyDevicesSettings(settings: settings)
             SettingsSection(title: "Colore") {
                 TabColorPicker(tab: .map, settings: settings)
             }
+        }
+    }
+}
+
+/// Options for the nearby-devices card and the proximity lock, on the Map page of Settings.
+struct NearbyDevicesSettings: View {
+    @ObservedObject var settings: Settings
+    @State private var known: [NearbyDeviceReader.Entry] = []
+    @State private var confirmingTest = false
+
+    private static let graceOptions: [(label: String, seconds: Int)] = [
+        ("2 secondi", 2), ("5 secondi", 5), ("10 secondi", 10), ("15 secondi", 15), ("30 secondi", 30),
+        ("1 minuto", 60), ("2 minuti", 120), ("5 minuti", 300),
+    ]
+
+    var body: some View {
+        SettingsSection(title: "Dispositivi vicini",
+                        footnote: "Il radar è il disegno con gli anelli a 1, 3 e 10 metri; l'elenco con le distanze resta comunque. Si vedono solo i dispositivi che macOS già conosce, mai quelli di altre persone.") {
+            Toggle("Mostra il radar nella scheda Mappa", isOn: $settings.nearbyShowRadar)
+        }
+        SettingsSection(title: "Blocca il Mac se mi allontano",
+                        footnote: "Funziona sempre, a scheda chiusa, finché è acceso: MenuStats legge i dispositivi ogni pochi secondi (da 1 a 60, secondo il tempo scelto), a costo quasi nullo. Un dispositivo conta solo dopo che è stato visto, così l'opzione non scatta se il telefono è in un'altra stanza quando la accendi. Dopo il blocco non scatta di nuovo finché un dispositivo scelto non torna vicino. Cuffie e AirPods spesso spariscono dal segnale quando li metti nella custodia: meglio scegliere iPhone o Apple Watch. È una comodità, non una sicurezza: il segnale Bluetooth può restare anche a distanza o sparire per un attimo.") {
+            Toggle("Blocca il Mac quando i dispositivi scelti si allontanano", isOn: $settings.proximityLockEnabled)
+            if settings.proximityLockEnabled || !settings.proximityLockDevices.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Dispositivi da controllare").font(.system(size: 12, weight: .medium))
+                    ForEach(choices, id: \.id) { entry in
+                        Toggle(isOn: binding(for: entry)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: NearbyMath.symbol(name: entry.name, kind: entry.kind)).frame(width: 16)
+                                Text(entry.name).lineLimit(1)
+                                if let rssi = entry.rssi {
+                                    Text("ora " + NearbyMath.label(forDistance: NearbyMath.distance(rssi: rssi)))
+                                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                                } else if !entry.connected {
+                                    Text("non nelle vicinanze").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    if choices.isEmpty { Text("Nessun dispositivo Bluetooth noto a questo Mac.").font(.system(size: 11)).foregroundStyle(.secondary) }
+                }
+                if settings.proximityLockDevices.count > 1 {
+                    Picker("Blocca quando", selection: $settings.proximityLockRequiresAll) {
+                        Text("se ne allontana uno qualsiasi").tag(false)
+                        Text("si allontanano tutti").tag(true)
+                    }
+                }
+                Picker("Dopo che non lo sento da", selection: $settings.proximityLockGrace) {
+                    ForEach(Self.graceOptions, id: \.seconds) { Text($0.label).tag($0.seconds) }
+                }
+                if settings.proximityLockGrace <= 5 {
+                    Text("Con tempi così brevi il Mac può bloccarsi per un calo momentaneo del segnale. macOS aggiorna il segnale di ogni dispositivo solo ogni pochi secondi, quindi non reagisce davvero più in fretta di così.")
+                        .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                Toggle("Considera lontano anche oltre una distanza", isOn: $settings.proximityLockUseDistance)
+                if settings.proximityLockUseDistance {
+                    HStack(spacing: 8) {
+                        Text("Distanza massima")
+                        TextField("", value: distanceBinding, format: .number.precision(.fractionLength(0...1)))
+                            .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width: 60)
+                        Text("metri")
+                        Stepper("", value: distanceBinding, in: 1...50, step: 0.5).labelsHidden()
+                    }
+                    Text("La distanza è una stima dal segnale e può sbagliare di diversi metri: guarda il valore \"ora\" accanto a ogni dispositivo, tenendolo dove vuoi che sia il limite, e regola di conseguenza. Il dispositivo conta come lontano solo se resta oltre la distanza per tutto il tempo scelto.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if settings.proximityLockDevices.isEmpty {
+                    Text("Scegli almeno un dispositivo, altrimenti il blocco non si attiva.").font(.system(size: 11)).foregroundStyle(.orange)
+                }
+                HStack {
+                    Button("Blocca il Mac ora (prova)") { confirmingTest = true }
+                    Text("Serve a vedere che il blocco funziona su questo Mac.").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onAppear { loadKnown() }
+        .confirmationDialog("Bloccare il Mac adesso?", isPresented: $confirmingTest) {
+            Button("Blocca ora") { SystemActions.lockScreen() }
+            Button("Annulla", role: .cancel) {}
+        } message: { Text("Dovrai sbloccarlo con la password o Touch ID.") }
+    }
+
+    /// Known devices, plus chosen ones that macOS no longer lists, so they can still be switched off.
+    private var choices: [NearbyDeviceReader.Entry] {
+        let listed = Set(known.map(\.id))
+        let missing = settings.proximityLockDevices.filter { !listed.contains($0.key) }
+            .map { NearbyDeviceReader.Entry(id: $0.key, name: $0.value, kind: nil, connected: false, rssi: nil) }
+        return (known + missing).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Meters typed by hand, kept between 1 and 50.
+    private var distanceBinding: Binding<Double> {
+        Binding(get: { settings.proximityLockDistance },
+                set: { settings.proximityLockDistance = min(max($0, 1), 50) })
+    }
+
+    private func binding(for entry: NearbyDeviceReader.Entry) -> Binding<Bool> {
+        Binding(get: { settings.proximityLockDevices[entry.id] != nil },
+                set: { on in
+                    if on { settings.proximityLockDevices[entry.id] = entry.name } else { settings.proximityLockDevices[entry.id] = nil }
+                })
+    }
+
+    private func loadKnown() {
+        DispatchQueue.global(qos: .utility).async {
+            let entries = NearbyDeviceReader.sample()
+            DispatchQueue.main.async { known = entries }
         }
     }
 }
@@ -480,8 +589,9 @@ struct ModuleSettings: View {
             WeatherPlaceSettings(settings: settings, weather: model.weather, location: model.location)
         case .awake:
             AwakeAISettings(model: model, settings: settings)
+            if HardwarePresence.hasBattery { AwakeLidSettings(awake: model.awake, hardware: model.hardware, settings: settings) }
             SettingsSection(title: "Sessione",
-                            footnote: "Come il comando caffeinate, MenuStats chiede a macOS di non andare in stop per inattività, senza password e senza helper. Una sessione si avvia dalla scheda Sveglio e finisce da sola allo scadere del tempo. Chiudere il coperchio mette comunque il Mac in stop.") {
+                            footnote: "Come il comando caffeinate, MenuStats chiede a macOS di non andare in stop per inattività, senza password e senza helper. Una sessione si avvia dalla scheda Sveglio e finisce da sola allo scadere del tempo. Chiudere il coperchio mette il Mac in stop, a meno di attivare l'opzione Coperchio chiuso.") {
                 Toggle("Lascia spegnere lo schermo", isOn: Binding(get: { settings.awakeAllowDisplaySleep },
                                                                    set: { model.awake.setAllowDisplaySleep($0) }))
                 if HardwarePresence.hasBattery {
@@ -731,7 +841,7 @@ struct HelperSettings: View {
     @ObservedObject var hardware: HardwareControl
 
     var body: some View {
-        SettingsSection(title: "Helper con privilegi", footnote: "Un piccolo servizio di sistema (LaunchDaemon) scrive la velocità delle ventole nello SMC. Accetta comandi solo da questa copia di MenuStats e rifiuta velocità fuori dai limiti di fabbrica. Dopo l'installazione macOS chiede di consentirlo in Impostazioni di Sistema ▸ Generali ▸ Elementi login.") {
+        SettingsSection(title: "Helper con privilegi", footnote: "Un piccolo servizio di sistema (LaunchDaemon) scrive la velocità delle ventole nello SMC e tiene sveglio il Mac col coperchio chiuso. Accetta comandi solo da questa copia di MenuStats e rifiuta velocità fuori dai limiti di fabbrica. Dopo l'installazione macOS chiede di consentirlo in Impostazioni di Sistema ▸ Generali ▸ Elementi login.") {
             HStack(spacing: 6) {
                 Circle().fill(hardware.helperState == .installed ? Color.green : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
                 Text("Stato: \(hardware.helperState.label)").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -753,6 +863,28 @@ struct HelperSettings: View {
             if let error = hardware.fanError { Text(error).font(.system(size: 11)).foregroundStyle(.red) }
         }
         .onAppear { hardware.refreshHelperState() }
+    }
+}
+
+/// Lid-closed awake through the root helper, with what it costs and how it is undone.
+struct AwakeLidSettings: View {
+    let awake: AwakeController
+    @ObservedObject var hardware: HardwareControl
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        SettingsSection(title: "Coperchio chiuso",
+                        footnote: "Durante una sessione l'helper con privilegi disattiva lo stop del Mac, come «sudo pmset disablesleep 1», così puoi chiudere il coperchio e il Mac continua a lavorare. Finché dura, anche Stop dal menu Apple è sospeso. Lo stop torna attivo da solo quando la sessione finisce, quando MenuStats si chiude, va in crash o non risponde per 3 minuti, quando il Mac si scalda troppo, con la batteria sotto il 10% e al riavvio. Se avevi già disattivato lo stop con pmset, MenuStats lo lascia com'è. Non chiudere il Mac acceso in uno zaino: senza aria si scalda.") {
+            Toggle("Resta sveglio anche col coperchio chiuso", isOn: Binding(get: { settings.awakeLidClosed }, set: { awake.setLidClosed($0) }))
+                .disabled(!hardware.canUseHelper && !settings.awakeLidClosed)
+            if !hardware.canUseHelper {
+                Text("Serve l'helper con privilegi: installalo qui sotto.").font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if let error = hardware.lidError {
+                Text(error).font(.system(size: 11)).foregroundStyle(.orange)
+            }
+        }
+        // MacBook Air has no fans, so the helper must be installable from here too.
+        if !hardware.canUseHelper { HelperSettings(hardware: hardware) }
     }
 }
 

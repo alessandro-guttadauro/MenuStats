@@ -44,6 +44,8 @@ enum UITestRenderer {
             ("cpu", AnyView(ModuleSettings(module: .cpu, model: model, snapshot: model.snapshot, settings: settings))),
             ("network", AnyView(ModuleSettings(module: .network, model: model, snapshot: model.snapshot, settings: settings))),
             ("fans", AnyView(ModuleSettings(module: .fans, model: model, snapshot: model.snapshot, settings: settings))),
+            ("awake", AnyView(ModuleSettings(module: .awake, model: model, snapshot: model.snapshot, settings: settings))),
+            ("map", AnyView(MapSettings(settings: settings))),
             ("notifications", AnyView(NotificationSettings(settings: settings))),
         ]
         for (name, page) in pages {
