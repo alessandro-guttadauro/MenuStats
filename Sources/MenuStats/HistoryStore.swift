@@ -6,6 +6,39 @@ enum Metric: String, CaseIterable {
     case cpuTemp, ssdTemp, fan, power, battery, batteryPower
 }
 
+extension Metric {
+    /// Column title in the CSV export, with the unit of `csvValue`.
+    var csvHeader: String {
+        switch self {
+        case .cpu: "CPU (%)"
+        case .cpuUser: "CPU utente (%)"
+        case .cpuSystem: "CPU sistema (%)"
+        case .memory: "Memoria (%)"
+        case .swap: "Swap (MB)"
+        case .netDown: "Download (KB/s)"
+        case .netUp: "Upload (KB/s)"
+        case .diskRead: "Disco lettura (KB/s)"
+        case .diskWrite: "Disco scrittura (KB/s)"
+        case .cpuTemp: "Temperatura CPU (°C)"
+        case .ssdTemp: "Temperatura SSD (°C)"
+        case .fan: "Ventole (giri/min)"
+        case .power: "Consumo sistema (W)"
+        case .battery: "Batteria (%)"
+        case .batteryPower: "Batteria (W)"
+        }
+    }
+
+    /// Stored value (fractions, bytes, bytes per second) converted to the CSV unit.
+    func csvValue(_ value: Double) -> Double {
+        switch self {
+        case .cpu, .cpuUser, .cpuSystem, .memory, .battery: value * 100
+        case .swap: value / 1_000_000
+        case .netDown, .netUp, .diskRead, .diskWrite: value / 1_000
+        case .cpuTemp, .ssdTemp, .fan, .power, .batteryPower: value
+        }
+    }
+}
+
 /// Chart time range. `live` comes from the in-memory buffer, the others from SQLite.
 enum HistoryRange: Int, CaseIterable, Identifiable {
     case live, hour, day, week
@@ -109,6 +142,34 @@ final class HistoryStore {
             }
         }
         return points
+    }
+
+    /// Every stored minute as CSV, one row per minute and one column per metric, in readable units.
+    func csv() -> String {
+        flush()
+        var rows: [Int: [Metric: Double]] = [:]
+        var statement: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT metric, minute, value FROM samples ORDER BY minute", -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let name = sqlite3_column_text(statement, 0), let metric = Metric(rawValue: String(cString: name)) else { continue }
+                rows[Int(sqlite3_column_int64(statement, 1)), default: [:]][metric] = sqlite3_column_double(statement, 2)
+            }
+        }
+        sqlite3_finalize(statement)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let metrics = Metric.allCases
+        var lines = [(["Data e ora"] + metrics.map(\.csvHeader)).joined(separator: ",")]
+        for minute in rows.keys.sorted() {
+            let values = rows[minute]!
+            let date = formatter.string(from: Date(timeIntervalSince1970: Double(minute) * 60))
+            lines.append(([date] + metrics.map { metric in
+                values[metric].map { String(format: "%.2f", metric.csvValue($0)) } ?? ""
+            }).joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 
     func clear() {
