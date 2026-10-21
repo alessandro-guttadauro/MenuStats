@@ -207,6 +207,7 @@ struct GeneralSettings: View {
                 Stepper("Processi mostrati: \(settings.processCount)", value: $settings.processCount, in: 3...12)
                 Toggle("Raggruppa i processi per app (es. tutti gli helper di Chrome insieme)", isOn: $settings.groupProcessesByApp)
             }
+            SettingsBackupSection()
             SettingsSection(title: "Avvio", footnote: LoginItem.isAvailable ? nil : "Disponibile solo per l'app installata con scripts/install.sh.") {
                 Toggle("Apri MenuStats al login", isOn: Binding(get: { loginEnabled }, set: { enabled in
                     LoginItem.setEnabled(enabled)
@@ -218,6 +219,53 @@ struct GeneralSettings: View {
                         .font(.system(size: 11)).foregroundStyle(.orange)
                 }
             }
+        }
+    }
+}
+
+/// Export to / import from a file, e.g. to bring the same setup to another Mac.
+struct SettingsBackupSection: View {
+    @State private var message: String?
+
+    var body: some View {
+        SettingsSection(title: "Backup delle impostazioni",
+                        footnote: "Salva in un file tutte le scelte di MenuStats (moduli, stili, colori, avvisi, Meteo, Sveglio…) e ripristinale qui o su un altro Mac. Dopo l'importazione MenuStats si riapre. La cronologia dei grafici non è inclusa: si esporta in CSV da Info.") {
+            HStack {
+                Button("Esporta impostazioni…") { export() }
+                Button("Importa impostazioni…") { importBackup() }
+                if let message { Text(message).font(.system(size: 11)).foregroundStyle(.secondary) }
+            }
+        }
+    }
+
+    private func export() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.propertyList]
+        panel.nameFieldStringValue = SettingsBackup.suggestedFileName
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try SettingsBackup.export(to: url)
+            message = "Impostazioni salvate in \(url.lastPathComponent)"
+        } catch {
+            message = "Salvataggio non riuscito: \(error.localizedDescription)"
+        }
+    }
+
+    private func importBackup() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.propertyList]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let confirm = NSAlert()
+        confirm.messageText = "Importare le impostazioni da \(url.lastPathComponent)?"
+        confirm.informativeText = "Le impostazioni attuali verranno sostituite e MenuStats si riaprirà."
+        confirm.addButton(withTitle: "Importa e riapri")
+        confirm.addButton(withTitle: "Annulla")
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            try SettingsBackup.importAndRelaunch(from: url)
+        } catch {
+            message = error.localizedDescription
         }
     }
 }
@@ -834,13 +882,30 @@ struct AboutSettings: View {
                 Text(HistoryStore.defaultURL.path).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                 HStack {
                     Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([HistoryStore.defaultURL]) }
+                    Button("Esporta CSV…") { exportCSV() }
                     Button("Cancella storico", role: .destructive) {
                         model.history.clear()
                         cleared = true
                     }
                     if cleared { Text("Storico cancellato").foregroundStyle(.secondary) }
                 }
+                if let exported { Text(exported).font(.system(size: 11)).foregroundStyle(.secondary) }
             }
+        }
+    }
+
+    @State private var exported: String?
+
+    private func exportCSV() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "MenuStats storico \(Date().formatted(.iso8601.year().month().day())).csv"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try model.history.csv().write(to: url, atomically: true, encoding: .utf8)
+            exported = "Storico esportato in \(url.lastPathComponent)"
+        } catch {
+            exported = "Esportazione non riuscita: \(error.localizedDescription)"
         }
     }
 }
