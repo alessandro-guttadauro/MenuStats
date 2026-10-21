@@ -268,6 +268,23 @@ enum MenubarLayout: String, StyleOption {
     var label: String { ["Una voce unica (compatta)", "Una voce per modulo"][Self.allCases.firstIndex(of: self)!] }
 }
 
+/// When the fan icon spins in the menu bar. Each frame is a new image for macOS to show, 12 a second, which costs
+/// battery (about 13 points of a core against 1); a still fan keeps its meaning.
+enum IconAnimation: String, StyleOption {
+    case always, onPower, never
+    var label: String { ["Sempre", "Solo con l'alimentatore", "Mai"][Self.allCases.firstIndex(of: self)!] }
+
+    /// Never in Low Power Mode; `onACPower` is nil on Macs without a battery, which always count as plugged in.
+    func allowsMotion(lowPowerMode: Bool, onACPower: Bool?) -> Bool {
+        guard !lowPowerMode else { return false }
+        switch self {
+        case .always: return true
+        case .onPower: return onACPower ?? true
+        case .never: return false
+        }
+    }
+}
+
 /// Look of MenuStats' own windows (dropdown and Settings). The menu bar keeps following macOS.
 enum AppearanceMode: String, StyleOption {
     case system, light, dark, automatic
@@ -293,6 +310,7 @@ final class Settings: ObservableObject {
     @Published var temperatureUnit: TemperatureUnit { didSet { save(temperatureUnit.rawValue, "temperatureUnit"); Format.fahrenheit = temperatureUnit == .fahrenheit } }
     @Published var showLabels: Bool { didSet { save(showLabels, "showLabels") } }
     @Published var dynamicIcons: Bool { didSet { save(dynamicIcons, "dynamicIcons") } }
+    @Published var iconAnimation: IconAnimation { didSet { save(iconAnimation.rawValue, "iconAnimation") } }
     /// Yellow → orange → red when a module needs attention (on by default; icons stay monochrome otherwise).
     @Published var severityColors: Bool { didSet { save(severityColors, "severityColors") } }
     /// Optional: tint each module's icon with a color of the user's choice.
@@ -413,6 +431,7 @@ final class Settings: ObservableObject {
         temperatureUnit = string("temperatureUnit", TemperatureUnit.celsius)
         showLabels = bool("showLabels", true)
         dynamicIcons = bool("dynamicIcons", true)
+        iconAnimation = string("iconAnimation", IconAnimation.onPower)
         severityColors = bool("severityColors", true)
         colorIcons = bool("colorIcons", false)
         let savedColors = defaults.dictionary(forKey: "moduleColors") as? [String: String] ?? [:]
