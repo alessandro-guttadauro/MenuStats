@@ -54,24 +54,42 @@ final class FitConfirmationTests: XCTestCase {
         XCTAssertEqual(fit.observe(hidden: true, signature: 100, at: t0.addingTimeInterval(6.4)), .shrink)
     }
 
-    func testRestoreStopsAfterAWiderBarDoesNotFitUntilTheRoomMayHaveChanged() {
+    func testRestoreWaitsLongerAfterEachWiderBarThatDoesNotFit() {
         var fit = FitConfirmation()
         XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
-        fit.beganRestore()
-        fit.layoutChanged(at: t0, signature: 1)
-        _ = fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(2))
-        XCTAssertEqual(fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(3)), .shrink)
-        XCTAssertNil(fit.restoreDelay, "no more tries: the bar would flicker")
+        var start = t0
+        for expected: TimeInterval in [60, 120, 240, 480, 600, 600] {
+            fit.beganRestore(at: start)
+            fit.layoutChanged(at: start, signature: 1)
+            _ = fit.observe(hidden: true, signature: 2, at: start.addingTimeInterval(2))
+            XCTAssertEqual(fit.observe(hidden: true, signature: 2, at: start.addingTimeInterval(3)), .shrink)
+            XCTAssertEqual(fit.restoreDelay, expected, "fewer tries: the bar would flicker")
+            start = start.addingTimeInterval(100)
+        }
         fit.roomMayHaveChanged()
         XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
     }
 
     func testRestoreDelayStaysShortWhenTheWiderBarFits() {
         var fit = FitConfirmation()
-        fit.beganRestore()
+        fit.beganRestore(at: t0)
         fit.layoutChanged(at: t0, signature: 1)
         XCTAssertEqual(fit.observe(hidden: false, signature: 2, at: t0.addingTimeInterval(2)), .fine)
+        XCTAssertTrue(fit.confirmingRestore)
+        XCTAssertEqual(fit.observe(hidden: false, signature: 2, at: t0.addingTimeInterval(31)), .fine)
+        XCTAssertFalse(fit.confirmingRestore)
         XCTAssertEqual(fit.restoreDelay, FitConfirmation.firstRestoreDelay)
+    }
+
+    func testAWiderBarHiddenSecondsAfterShowingCountsAsNotFitting() {
+        // macOS shows the wider bar, then hides it a few seconds later.
+        var fit = FitConfirmation()
+        fit.beganRestore(at: t0)
+        fit.layoutChanged(at: t0, signature: 1)
+        XCTAssertEqual(fit.observe(hidden: false, signature: 2, at: t0.addingTimeInterval(2)), .fine)
+        _ = fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(8))
+        XCTAssertEqual(fit.observe(hidden: true, signature: 2, at: t0.addingTimeInterval(9)), .shrink)
+        XCTAssertEqual(fit.restoreDelay, FitConfirmation.failedRestoreDelay)
     }
 
     func testAReadingThatStaysHiddenCostsOnlyAFewShrinks() {

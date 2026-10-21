@@ -32,6 +32,12 @@ struct FitConfirmation {
     static let shrinkBudget = 2
     static let shrinkRefill: TimeInterval = 20
     static let firstRestoreDelay: TimeInterval = 10
+    /// After a wider bar did not fit, the next try waits this long, doubling each time up to `longestRestoreDelay`:
+    /// nothing announces when a microphone or camera indicator goes away.
+    static let failedRestoreDelay: TimeInterval = 60
+    static let longestRestoreDelay: TimeInterval = 600
+    /// Seconds a wider bar must stay visible to count as fitting: macOS may hide it a few seconds after showing it.
+    static let restoreProof: TimeInterval = 30
 
     private var settledAt = Date.distantPast
     private var changedAt = Date.distantPast
@@ -39,9 +45,14 @@ struct FitConfirmation {
     private var hiddenSince: Date?
     private var budget = FitConfirmation.shrinkBudget
     private var budgetCountedAt = Date.distantPast
-    /// Seconds before trying a wider bar; nil after a try that did not fit, until `roomMayHaveChanged()`.
+    /// Seconds before trying a wider bar; longer after each try that did not fit, until `roomMayHaveChanged()`.
     private(set) var restoreDelay: TimeInterval? = FitConfirmation.firstRestoreDelay
+    private var nextFailedDelay = FitConfirmation.failedRestoreDelay
     private var restoring = false
+    private var restoreBeganAt = Date.distantPast
+
+    /// A wider bar was tried and hasn't stayed visible long enough yet to count as fitting.
+    var confirmingRestore: Bool { restoring }
 
     /// The items were created, resized or reshaped. `signature` summarizes where macOS put them (for example the sum of
     /// their frames' edges), so a later reading can tell whether the layout has moved since.
@@ -57,9 +68,10 @@ struct FitConfirmation {
         guard hidden else {
             hiddenSince = nil
             budget = Self.shrinkBudget
-            if restoring {
+            if restoring, now.timeIntervalSince(restoreBeganAt) >= Self.restoreProof {
                 restoring = false
                 restoreDelay = Self.firstRestoreDelay // the wider bar fits: next step soon
+                nextFailedDelay = Self.failedRestoreDelay
             }
             return .fine
         }
@@ -79,16 +91,24 @@ struct FitConfirmation {
             hiddenSince = nil
             if restoring {
                 restoring = false
-                restoreDelay = nil // that step did not fit: stop trying until the room may have changed
+                // That step did not fit: try again later, waiting longer each time so the bar doesn't flicker.
+                restoreDelay = nextFailedDelay
+                nextFailedDelay = min(nextFailedDelay * 2, Self.longestRestoreDelay)
             }
             return .shrink
         }
         return .wait(0.5)
     }
 
-    /// A step wider was just tried; if it does not fit, no more tries until `roomMayHaveChanged()`.
-    mutating func beganRestore() { restoring = true }
+    /// A step wider was just tried; if it does not fit, the next try waits longer.
+    mutating func beganRestore(at now: Date) {
+        restoring = true
+        restoreBeganAt = now
+    }
 
     /// Something that changes the room in the menu bar happened: wider bars are worth trying again.
-    mutating func roomMayHaveChanged() { restoreDelay = Self.firstRestoreDelay }
+    mutating func roomMayHaveChanged() {
+        restoreDelay = Self.firstRestoreDelay
+        nextFailedDelay = Self.failedRestoreDelay
+    }
 }
