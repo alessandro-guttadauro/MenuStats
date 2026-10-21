@@ -21,7 +21,7 @@ enum MenubarRenderer {
         var recent: (Metric, Int) -> [Double]
         /// Fan animation angle in radians, advanced by the status bar controller while fans spin.
         var fanAngle: CGFloat = 0
-        /// Steam animation position (0…1, wraps) while an Awake session runs, advanced like the fan angle.
+        /// Where the steam's waves are (0…1, wraps). The menu bar keeps 0: the cup's steam is drawn still.
         var steamPhase: CGFloat = 0
         var weather: WeatherReport? = nil
         var weatherConfigured = false
