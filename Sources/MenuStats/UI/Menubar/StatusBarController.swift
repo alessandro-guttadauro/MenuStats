@@ -168,6 +168,7 @@ final class StatusBarController: NSObject {
 
     /// The room MenuStats may use, measured on displays with a notch; nil where it can't be measured.
     private func measuredRoom() -> CGFloat? {
+        if roomUnreliable { return nil }
         let visible = entries.compactMap { entry -> NSWindow? in
             guard let window = entry.item.button?.window, window.isVisible, !isOutOfRoom(window) else { return nil }
             return window
@@ -221,7 +222,7 @@ final class StatusBarController: NSObject {
             guard fitLevel > 0 else { return }
             debug("prova a ripristinare: livello \(fitLevel) -> \(fitLevel - 1)")
             fitLevel -= 1
-            confirmation.beganRestore()
+            confirmation.beganRestore(at: Date())
             confirmation.layoutChanged(at: Date(), signature: layoutSignature)
             rebuild()
         }
@@ -249,6 +250,7 @@ final class StatusBarController: NSObject {
     /// Ordered out, off screen or behind the notch: macOS had no room for it.
     private func isOutOfRoom(_ window: NSWindow) -> Bool {
         let frame = window.frame
+        if Self.isHiddenInPlace(frame) { return true }
         guard let screen = window.screen ?? NSScreen.screens.first(where: { $0.frame.intersects(frame) }) else { return true }
         if frame.maxX <= screen.frame.minX || frame.minX >= screen.frame.maxX { return true }
         if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
@@ -256,9 +258,41 @@ final class StatusBarController: NSObject {
         return false
     }
 
+    /// On macOS 26 an item that no longer fits (say, once the microphone indicator appears) can be hidden where it
+    /// stands, its frame unchanged; only the window server's on-screen flag tells. The menu bar windows belong to
+    /// Control Center there, so the item is looked up by its bounds. False when no such window is listed (older
+    /// systems rely on the frame) and when no menu bar icon is on screen at all (display asleep, full-screen app).
+    private static func isHiddenInPlace(_ frame: NSRect) -> Bool {
+        guard let primary = NSScreen.screens.first,
+              let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let top = primary.frame.maxY - frame.maxY // window server coordinates start at the top left
+        let level = Int(CGWindowLevelForKey(.statusWindow))
+        var found = false, shown = false, othersShown = false
+        for info in list where info[kCGWindowLayer as String] as? Int == level {
+            guard let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { continue }
+            let onScreen = info[kCGWindowIsOnscreen as String] as? Bool == true
+            if abs(bounds.minX - frame.minX) < 1, abs(bounds.width - frame.width) < 1, abs(bounds.minY - top) < 1 {
+                found = true
+                shown = shown || onScreen
+            } else if onScreen {
+                othersShown = true
+            }
+        }
+        return found && !shown && othersShown
+    }
+
+    /// Set when macOS hid an item where it stands: the room measured from the notch is then too generous (something
+    /// the frames don't show takes space), so the bar widens one try at a time instead.
+    private var roomUnreliable = false
+
     private func scheduleFitCheck(after delay: Double = 0.6) {
         fitCheck?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.checkFit() }
+        let work = DispatchWorkItem { [weak self] in
+            self?.fitCheck = nil
+            self?.checkFit()
+        }
         fitCheck = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -279,11 +313,17 @@ final class StatusBarController: NSObject {
         }
         switch verdict {
         case .fine:
+            // Back to the full bar: the room can be measured again.
+            if fitLevel == 0, !confirmation.confirmingRestore { roomUnreliable = false }
             // Where the room is measured it decides; elsewhere try one step wider after a while.
-            if lastGeometry?.notchRightEdge != nil { applyRoom() } else if fitLevel > 0 { scheduleRestore() }
+            if !roomUnreliable, lastGeometry?.notchRightEdge != nil { applyRoom() } else if fitLevel > 0 { scheduleRestore() }
         case .wait(let seconds): scheduleFitCheck(after: seconds)
         case .shrink:
             guard fitLevel < maxFitLevel else { return }
+            if !roomUnreliable, entries.contains(where: { $0.item.button?.window.map { Self.isHiddenInPlace($0.frame) } == true }) {
+                debug("nascosto da macOS senza spostarlo: lo spazio misurato dal notch non vale")
+                roomUnreliable = true
+            }
             debug("nascosto da macOS: passo \(fitLevel) -> \(fitLevel + 1)")
             fitLevel += 1
             // The measured room was wrong (an icon appeared to the right): measure again once visible.
@@ -297,8 +337,10 @@ final class StatusBarController: NSObject {
     /// With a measured room MenuStats picks the right step at once; elsewhere it tries one step wider at a time.
     private func resetFit() {
         debug("lo spazio potrebbe essere cambiato (passo \(fitLevel))")
-        confirmation.roomMayHaveChanged()
-        if lastGeometry?.notchRightEdge != nil {
+        // While an indicator hides MenuStats in place, apps coming and going say nothing about the room: keep the
+        // growing wait between tries, or the bar would flicker at every launch.
+        if !roomUnreliable { confirmation.roomMayHaveChanged() }
+        if !roomUnreliable, lastGeometry?.notchRightEdge != nil {
             applyRoom()
             scheduleFitCheck()
         } else if fitLevel > 0 {
@@ -320,6 +362,7 @@ final class StatusBarController: NSObject {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
                                                queue: .main) { [weak self] _ in
             self?.lastGeometry = nil // the notch and the edges may be elsewhere now
+            self?.roomUnreliable = false
             self?.resetFit()
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil,
@@ -385,6 +428,8 @@ final class StatusBarController: NSObject {
             if settings.autoFitMenubar && !rebuilding {
                 updateLadder()
                 applyRoom()
+                // Nothing announces a microphone or camera indicator taking room: look at every sample.
+                if fitCheck == nil, fitLevel < maxFitLevel, entries.contains(where: { isOutOfRoom($0.item) }) { scheduleFitCheck() }
             }
         }
         for index in entries.indices {
