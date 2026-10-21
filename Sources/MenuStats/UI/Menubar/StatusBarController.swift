@@ -23,7 +23,6 @@ final class StatusBarController: NSObject {
     private var entries: [Entry] = []
     private var cancellables: Set<AnyCancellable> = []
     private var fanAngle: CGFloat = 0
-    private var steamPhase: CGFloat = 0
     private var animationTimer: Timer?
 
     init(model: AppModel, panel: DashboardPanelController, openSettings: @escaping () -> Void) {
@@ -370,7 +369,6 @@ final class StatusBarController: NSObject {
             options: options,
             recent: { [weak model] metric, count in model?.recentValues(metric, count: count) ?? [] },
             fanAngle: fanAngle,
-            steamPhase: steamPhase,
             weather: model.weather.report,
             weatherConfigured: settings.weatherLocation != nil,
             awake: model.awake.state
@@ -432,19 +430,22 @@ final class StatusBarController: NSObject {
         return (result, pixels)
     }
 
-    // MARK: - Fan and steam animation
+    // MARK: - Fan animation
+    // The Awake cup does not move: its steam is drawn still. Animating it meant a new menu bar image 12 times a
+    // second for as long as the session lasted (often hours, while an AI works): about 13 points of a core, not 1.
 
-    private var shouldAnimateFan: Bool {
-        settings.dynamicIcons && settings.isEnabled(.fans) && model.snapshot.fansSpinning
+    /// Whether the fan may spin now: never in Low Power Mode, and with "Solo con l'alimentatore" not on battery.
+    private var animationAllowed: Bool {
+        settings.dynamicIcons && settings.iconAnimation.allowsMotion(lowPowerMode: model.snapshot.lowPowerMode,
+                                                                     onACPower: model.snapshot.battery?.onACPower)
     }
 
-    /// Steam rises from the cup while an Awake session runs.
-    private var shouldAnimateSteam: Bool {
-        settings.dynamicIcons && settings.isEnabled(.awake) && model.awake.state.isActive
+    private var shouldAnimateFan: Bool {
+        animationAllowed && settings.isEnabled(.fans) && model.snapshot.fansSpinning
     }
 
     private func updateAnimation() {
-        let animate = shouldAnimateFan || shouldAnimateSteam
+        let animate = shouldAnimateFan
         if animate, animationTimer == nil {
             let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in self?.advanceAnimation() }
             RunLoop.main.add(timer, forMode: .common)
@@ -453,7 +454,6 @@ final class StatusBarController: NSObject {
             animationTimer?.invalidate()
             animationTimer = nil
             fanAngle = 0
-            steamPhase = 0
             render()
         }
     }
@@ -466,8 +466,6 @@ final class StatusBarController: NSObject {
         } else {
             fanAngle = 0
         }
-        // One steam cycle every 2.5 s.
-        steamPhase = shouldAnimateSteam ? (steamPhase + 1 / (12 * 2.5)).truncatingRemainder(dividingBy: 1) : 0
         render()
     }
 

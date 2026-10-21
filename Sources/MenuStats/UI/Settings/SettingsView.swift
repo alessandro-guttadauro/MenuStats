@@ -469,6 +469,14 @@ struct MenubarSettings: View {
                 if settings.dynamicIcons {
                     Text("Ventola che gira quando le ventole sono attive · fiamma con CPU sotto carico · termometro che sale e avviso di rallentamento termico · frecce di rete e disco accese solo con traffico · batteria con fulmine, spina o foglia (basso consumo) · avviso con pressione di memoria alta.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if HardwarePresence.hasFans {
+                        Picker("Ventola che gira", selection: $settings.iconAnimation) {
+                            ForEach(IconAnimation.allCases) { Text($0.label).tag($0) }
+                        }
+                        .frame(width: 420)
+                        Text("Ogni fotogramma è un'immagine nuova per la barra dei menu, 12 al secondo: mentre le ventole girano MenuStats usa circa il 13% di un core, contro l'1% con la ventola ferma. Con la modalità basso consumo si ferma sempre. La tazza di Sveglio non si muove: mostra il vapore fermo.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             SettingsSection(title: "Colori", footnote: "Le soglie di allerta: CPU e temperatura seguono le soglie delle rispettive pagine; memoria in base alla pressione; disco sotto il 15/10/5% libero; ventole oltre il 35/60/85% della velocità massima; batteria sotto il 30/20/10% (verde mentre è in carica).") {
